@@ -251,10 +251,14 @@ def main():
         if not cfg.get("start_from_scratch", False):
             start_epoch, start_step = ret
         logger.info("Loaded checkpoint %s at epoch %s step %s", cfg.load, start_epoch, start_step)
+
+        optim_lr = optimizer.param_groups[0]["lr"]
+        logger.info(f"Overwriting loaded learning rate from {optim_lr} to config lr={cfg.lr}")
+        for g in optimizer.param_groups:
+            g["lr"] = cfg.lr
     else:
         if False and not os.getenv("EXIT_ON_CKPT"):
             save(booster, exp_dir, model=model, ema=ema, optimizer=optimizer, lr_scheduler=lr_scheduler, sampler=sampler, epoch=0, step=0, global_step=0, batch_size=cfg.get("batch_size", None))
-
     model_sharding(ema)
 
     # =======================================================
