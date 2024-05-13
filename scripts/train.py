@@ -33,6 +33,15 @@ from opensora.utils.misc import (
 from opensora.utils.train_utils import MaskGenerator, create_colossalai_plugin, update_ema
 
 
+def calculate_weight_norm(model):
+    total_norm = 0.0
+    for param in model.parameters():
+        param_norm = param.data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+
 def main():
     # ======================================================
     # 1. configs & runtime variables
@@ -340,6 +349,7 @@ def main():
 
                 # == logging ==
                 if coordinator.is_master() and (global_step + 1) % cfg.get("log_every", 1) == 0:
+                    weight_norm = calculate_weight_norm(model)
                     avg_loss = running_loss / log_step
                     # progress bar
                     pbar.set_postfix({"loss": avg_loss, "step": step, "global_step": global_step})
@@ -354,6 +364,7 @@ def main():
                             "loss": loss.item(),
                             "avg_loss": avg_loss,
                             "lr": optimizer.param_groups[0]["lr"],
+                            "weight_norm": weight_norm,
                         }
                         if record_time:
                             wandb_dict.update(
@@ -368,7 +379,6 @@ def main():
                                 }
                             )
                         wandb.log(wandb_dict, step=global_step)
-
                     running_loss = 0.0
                     log_step = 0
 
