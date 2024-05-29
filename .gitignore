@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+datasets_unused
+hostfile*
+ckpts
+*.csv
 
 # C extensions
 *.so
