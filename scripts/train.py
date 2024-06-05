@@ -4,6 +4,7 @@ from pprint import pprint
 import time
 import numpy as np
 import os
+from peft import LoraConfig, get_peft_model_state_dict, get_peft_model, PeftModel
 import random
 
 import torch
@@ -457,6 +458,33 @@ def main():
     logger.info(
         f"Trainable model params: {format_numel_str(model_numel_trainable)}, Total model params: {format_numel_str(model_numel)}"
     )
+
+    # LoRA
+    for k,p in model.named_parameters():
+        p.requires_grad_(False)
+    lora_config = LoraConfig(
+        r=16,
+        init_lora_weights="gaussian",
+        target_modules=[
+            "to_k",
+            "to_q",
+            "to_v",
+            "to_out.0",
+            "proj_in",
+            "proj_out",
+            "ff.net.0.proj",
+            "ff.net.2",
+            "proj",
+            "linear",
+            "linear_1",
+            "linear_2",
+        ],
+        #use_dora=False,
+        #use_rslora=False
+    )
+    model = get_peft_model(model, lora_config)
+
+
 
     # 4.2. create ema
     ema = deepcopy(model).to(torch.float32).to(device)

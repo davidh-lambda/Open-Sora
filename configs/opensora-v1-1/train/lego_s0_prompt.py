@@ -114,7 +114,7 @@ eval_fps = 8
 eval_batch_size = 2
 eval_steps = ckpt_every
 
-wandb_project_name = "que_sora_sora"
+wandb_project_name = "que_lora_lora"
 wandb_project_entity = "lambdalabs"
 
-exp_id = "d_s0_prompt_warmup"
+exp_id = "lora_test"
