@@ -9,6 +9,7 @@ model = dict(
     time_scale=1.0,
     no_temporal_pos_emb=True,
     from_pretrained="PixArt-XL-2-256x256.pth",
+    input_sq_size=512,  # pretrained model is trained on 512x512
 )
 vae = dict(
     type="VideoAutoencoderKL",

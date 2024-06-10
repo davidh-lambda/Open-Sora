@@ -38,11 +38,20 @@ scheduler = dict(
     type="iddpm",
     timestep_respacing="",
 )
+scheduler_inference = dict(
+    type="iddpm",
+    num_sampling_steps=20,
+    cfg_scale=7.0,
+    cfg_channel=3,  # or None
+)
+
 
 # Others
 seed = 42
 outputs = "outputs"
-wandb = False
+wandb = True
+wandb_project_name = "qss_timedit"
+wandb_project_entity = "lambdalabs"
 
 epochs = 1000
 log_every = 10
@@ -52,3 +61,15 @@ load = None
 batch_size = 32
 lr = 2e-5
 grad_clip = 1.0
+exp_id = "0_pixart"
+
+
+eval_prompts = [
+        "People eating ice cream and drinkin espresso outside of a cafe on a narrow street in Rome. There are stores along the street selling a variety of wares. One shop sells fruits. Another shop sells vegetables. A third shop sells christmas ornaments. Many people walk along the street.",
+]
+
+eval_image_size = (360, 640)
+eval_num_frames = 1
+eval_fps = 8
+eval_batch_size = 2
+eval_steps = ckpt_every
