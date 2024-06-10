@@ -152,7 +152,7 @@ def save_sample(x, fps=8, save_path=None, normalize=True, value_range=(-1, 1), f
     """
     assert x.ndim == 4
 
-    if not force_video and x.shape[1] == 1:  # T = 1: save as image
+    if False and not force_video and x.shape[1] == 1:  # T = 1: save as image
         save_path += ".png"
         x = x.squeeze(1)
         save_image([x], save_path, normalize=normalize, value_range=value_range)
