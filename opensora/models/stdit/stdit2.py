@@ -37,7 +37,7 @@ class STDiT2Block(nn.Module):
         enable_flash_attn=False,
         enable_layernorm_kernel=False,
         enable_sequence_parallelism=False,
-        rope=None,
+        # rope=None,
         qk_norm=False,
     ):
         super().__init__()
@@ -52,7 +52,7 @@ class STDiT2Block(nn.Module):
             num_heads=num_heads,
             qkv_bias=True,
             enable_flash_attn=enable_flash_attn,
-            qk_norm=qk_norm,
+            # qk_norm=qk_norm,
         )
         self.scale_shift_table = nn.Parameter(torch.randn(6, hidden_size) / hidden_size**0.5)
 
@@ -67,16 +67,16 @@ class STDiT2Block(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         # temporal branch
-        self.norm_temp = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)  # new
-        self.attn_temp = Attention(
-            hidden_size,
-            num_heads=num_heads,
-            qkv_bias=True,
-            enable_flash_attn=self.enable_flash_attn,
-            rope=rope,
-            qk_norm=qk_norm,
-        )
-        self.scale_shift_table_temporal = nn.Parameter(torch.randn(3, hidden_size) / hidden_size**0.5)  # new
+        # self.norm_temp = get_layernorm(hidden_size, eps=1e-6, affine=False, use_kernel=enable_layernorm_kernel)  # new
+        # self.attn_temp = Attention(
+        #     hidden_size,
+        #     num_heads=num_heads,
+        #     qkv_bias=True,
+        #     enable_flash_attn=self.enable_flash_attn,
+        #     rope=rope,
+        #     qk_norm=qk_norm,
+        # )
+        # self.scale_shift_table_temporal = nn.Parameter(torch.randn(3, hidden_size) / hidden_size**0.5)  # new
 
     def t_mask_select(self, x_mask, x, masked_x, T, S):
         # x: [B, (T, S), C]
@@ -94,6 +94,13 @@ class STDiT2Block(nn.Module):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.scale_shift_table[None] + t.reshape(B, 6, -1)
         ).chunk(6, dim=1)
+        x = x + self.drop_path(gate_msa * self.attn(t2i_modulate(self.norm1(x), shift_msa, scale_msa)).reshape(B, N, C))
+        x = x + self.cross_attn(x, y, mask)
+        x = x + self.drop_path(gate_mlp * self.mlp(t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)))
+
+        return x
+
+
         shift_tmp, scale_tmp, gate_tmp = (self.scale_shift_table_temporal[None] + t_tmp.reshape(B, 3, -1)).chunk(
             3, dim=1
         )
@@ -184,7 +191,7 @@ class STDiT2Config(PretrainedConfig):
         caption_channels=4096,
         model_max_length=120,
         freeze=None,
-        qk_norm=False,
+        # qk_norm=False,
         enable_flash_attn=False,
         enable_layernorm_kernel=False,
         **kwargs,
@@ -204,7 +211,7 @@ class STDiT2Config(PretrainedConfig):
         self.caption_channels = caption_channels
         self.model_max_length = model_max_length
         self.freeze = freeze
-        self.qk_norm = qk_norm
+        # self.qk_norm = qk_norm
         self.enable_flash_attn = enable_flash_attn
         self.enable_layernorm_kernel = enable_layernorm_kernel
         super().__init__(**kwargs)
@@ -240,7 +247,7 @@ class STDiT2(PreTrainedModel):
         self.x_embedder = PatchEmbed3D(config.patch_size, config.in_channels, config.hidden_size)
         self.t_embedder = TimestepEmbedder(config.hidden_size)
         self.t_block = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 6 * config.hidden_size, bias=True))
-        self.t_block_temp = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 3 * config.hidden_size, bias=True))  # new
+        # self.t_block_temp = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 3 * config.hidden_size, bias=True))  # new
         self.y_embedder = CaptionEmbedder(
             in_channels=config.caption_channels,
             hidden_size=config.hidden_size,
@@ -250,7 +257,7 @@ class STDiT2(PreTrainedModel):
         )
 
         drop_path = [x.item() for x in torch.linspace(0, config.drop_path, config.depth)]
-        self.rope = RotaryEmbedding(dim=self.hidden_size // self.num_heads)  # new
+        # self.rope = RotaryEmbedding(dim=self.hidden_size // self.num_heads)  # new
         self.blocks = nn.ModuleList(
             [
                 STDiT2Block(
@@ -260,8 +267,8 @@ class STDiT2(PreTrainedModel):
                     drop_path=drop_path[i],
                     enable_flash_attn=self.enable_flash_attn,
                     enable_layernorm_kernel=self.enable_layernorm_kernel,
-                    rope=self.rope.rotate_queries_or_keys,
-                    qk_norm=config.qk_norm,
+                    # rope=self.rope.rotate_queries_or_keys,
+                    # qk_norm=config.qk_norm,
                 )
                 for i in range(self.depth)
             ]
@@ -270,14 +277,14 @@ class STDiT2(PreTrainedModel):
 
         # multi_res
         assert self.hidden_size % 3 == 0, "hidden_size must be divisible by 3"
-        self.csize_embedder = SizeEmbedder(self.hidden_size // 3)
-        self.ar_embedder = SizeEmbedder(self.hidden_size // 3)
-        self.fl_embedder = SizeEmbedder(self.hidden_size)  # new
-        self.fps_embedder = SizeEmbedder(self.hidden_size)  # new
+        # self.csize_embedder = SizeEmbedder(self.hidden_size // 3)
+        # self.ar_embedder = SizeEmbedder(self.hidden_size // 3)
+        # self.fl_embedder = SizeEmbedder(self.hidden_size)  # new
+        # self.fps_embedder = SizeEmbedder(self.hidden_size)  # new
 
         # init model
         self.initialize_weights()
-        self.initialize_temporal()
+        # self.initialize_temporal()
         if config.freeze is not None:
             assert config.freeze in ["not_temporal", "text"]
             if config.freeze == "not_temporal":
@@ -322,18 +329,18 @@ class STDiT2(PreTrainedModel):
         # 1. get dynamic size
         hw = torch.cat([height[:, None], width[:, None]], dim=1)
         rs = (height[0].item() * width[0].item()) ** 0.5
-        csize = self.csize_embedder(hw, B)
+        # csize = self.csize_embedder(hw, B)
 
         # 2. get aspect ratio
         ar = ar.unsqueeze(1)
-        ar = self.ar_embedder(ar, B)
-        data_info = torch.cat([csize, ar], dim=1)
+        # ar = self.ar_embedder(ar, B)
+        # data_info = torch.cat([csize, ar], dim=1)
 
         # 3. get number of frames
         fl = num_frames.unsqueeze(1)
         fps = fps.unsqueeze(1)
-        fl = self.fl_embedder(fl, B)
-        fl = fl + self.fps_embedder(fps, B)
+        # fl = self.fl_embedder(fl, B)
+        # fl = fl + self.fps_embedder(fps, B)
 
         # === get dynamic shape size ===
         _, _, Tx, Hx, Wx = x.size()
@@ -351,17 +358,17 @@ class STDiT2(PreTrainedModel):
 
         # prepare adaIN
         t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
-        t_spc = t + data_info  # [B, C]
-        t_tmp = t + fl  # [B, C]
+        t_spc = t #+ data_info  # [B, C]
+        # t_tmp = t + fl  # [B, C]
         t_spc_mlp = self.t_block(t_spc)  # [B, 6*C]
-        t_tmp_mlp = self.t_block_temp(t_tmp)  # [B, 3*C]
+        # t_tmp_mlp = self.t_block_temp(t_tmp)  # [B, 3*C]
         if x_mask is not None:
             t0_timestep = torch.zeros_like(timestep)
             t0 = self.t_embedder(t0_timestep, dtype=x.dtype)
-            t0_spc = t0 + data_info
-            t0_tmp = t0 + fl
+            t0_spc = t0 #+ data_info
+            # t0_tmp = t0 + fl
             t0_spc_mlp = self.t_block(t0_spc)
-            t0_tmp_mlp = self.t_block_temp(t0_tmp)
+            # t0_tmp_mlp = self.t_block_temp(t0_tmp)
         else:
             t0_spc = None
             t0_tmp = None
@@ -388,21 +395,27 @@ class STDiT2(PreTrainedModel):
                 x,
                 y,
                 t_spc_mlp,
-                t_tmp_mlp,
+                None, #t_tmp_mlp,
                 y_lens,
                 x_mask,
                 t0_spc_mlp,
-                t0_tmp_mlp,
+                None, #t0_tmp_mlp,
                 T,
                 S,
             )
             # x.shape: [B, N, C]
 
         # final process
-        x = self.final_layer(x, t, x_mask, t0_spc, T, S)  # [B, N, C=T_p * H_p * W_p * C_out]
+        #x = self.final_layer(x, t, x_mask, t0_spc, T, S)  # [B, N, C=T_p * H_p * W_p * C_out]
+        #x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)  # [B, C_out, T, H, W]
+
+        x = self.final_layer(x, t)  # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)  # [B, C_out, T, H, W]
+        # x = self.unpatchify_pixart(x)  # (N, out_channels, H, W)
+
 
         # cast to float32 for better accuracy
+        # x = x.unsqueeze(2)
         x = x.to(torch.float32)
         return x
 
@@ -434,13 +447,26 @@ class STDiT2(PreTrainedModel):
 
     def unpatchify_old(self, x):
         c = self.out_channels
-        t, h, w = [self.input_size[i] // self.patch_size[i] for i in range(3)]
+        t, h, w = [s // self.patch_size[i] for i, s in enumerate(x.size())]
         pt, ph, pw = self.patch_size
 
         x = x.reshape(shape=(x.shape[0], t, h, w, pt, ph, pw, c))
         x = rearrange(x, "n t h w r p q c -> n c t r h p w q")
         imgs = x.reshape(shape=(x.shape[0], c, t * pt, h * ph, w * pw))
         return imgs
+
+    def unpatchify_pixart(self, x):
+        """
+        x: (N, T, patch_size**2 * C)
+        imgs: (N, H, W, C)
+        """
+        c = self.out_channels
+        pt, ph, pw = self.x_embedder.patch_size
+        t, h, w = self.get_dynamic_size(x.unsqueeze(0).unsqueeze(0))
+
+        x = x.reshape(shape=(x.shape[0], h, w, ph, pw, c))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        return x.reshape(shape=(x.shape[0], c, h * ph, w * pw))
 
     def get_spatial_pos_embed(self, H, W, scale=1.0, base_size=None):
         pos_embed = get_2d_sincos_pos_embed(
@@ -462,10 +488,10 @@ class STDiT2(PreTrainedModel):
             if "cross_attn" in n:
                 p.requires_grad = False
 
-    def initialize_temporal(self):
-        for block in self.blocks:
-            nn.init.constant_(block.attn_temp.proj.weight, 0)
-            nn.init.constant_(block.attn_temp.proj.bias, 0)
+    # def initialize_temporal(self):
+        # for block in self.blocks:
+            # nn.init.constant_(block.attn_temp.proj.weight, 0)
+            # nn.init.constant_(block.attn_temp.proj.bias, 0)
 
     def initialize_weights(self):
         # Initialize transformer layers:
@@ -485,7 +511,7 @@ class STDiT2(PreTrainedModel):
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
         nn.init.normal_(self.t_block[1].weight, std=0.02)
-        nn.init.normal_(self.t_block_temp[1].weight, std=0.02)
+        # nn.init.normal_(self.t_block_temp[1].weight, std=0.02)
 
         # Initialize caption embedding MLP:
         nn.init.normal_(self.y_embedder.y_proj.fc1.weight, std=0.02)
