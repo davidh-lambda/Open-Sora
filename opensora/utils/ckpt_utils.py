@@ -256,9 +256,38 @@ def create_logger(logging_dir):
     return logger
 
 
+def reshape_tensor(tensor, target_shape):
+    if len(tensor.shape) == len(target_shape):
+        # Add singleton dimensions (size 1) where possible
+        new_shape = list(tensor.shape)
+        for i, (dim, target_dim) in enumerate(zip(tensor.shape, target_shape)):
+            if dim != target_dim and target_dim == 1:
+                new_shape.insert(i, 1)
+        return tensor.view(*new_shape)
+    else:
+        # Directly reshape if the lengths match
+        return tensor.view(*target_shape)
+
+
 def load_checkpoint(model, ckpt_path, save_as_pt=False):
     if ckpt_path.endswith(".pt") or ckpt_path.endswith(".pth"):
         state_dict = find_model(ckpt_path, model=model)
+        if "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+
+        # Iterate over each tensor in the model's state_dict
+        model_state_dict = model.state_dict()
+        for key, weight in model_state_dict.items():
+            if key in state_dict:
+                checkpoint_tensor = state_dict[key]
+
+                # Check if the shapes mismatch
+                if checkpoint_tensor.shape != weight.shape:
+                    # Try to add dimensions of size 1 wherever possible
+                    new_shape = list(weight.shape)
+                    reshaped_tensor = reshape_tensor(checkpoint_tensor, new_shape)
+                    state_dict[key] = reshaped_tensor
+
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
         print(f"Missing keys: {missing_keys}")
         print(f"Unexpected keys: {unexpected_keys}")
