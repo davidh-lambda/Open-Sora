@@ -5,6 +5,8 @@ import time
 import numpy as np
 import os
 import random
+from einops import rearrange
+import torch.nn.functional as F
 
 import torch
 import torch.distributed as dist
@@ -34,6 +36,41 @@ from opensora.utils.config_utils import (
 )
 from opensora.utils.misc import all_reduce_mean, format_numel_str, get_model_numel, requires_grad, to_torch_dtype
 from opensora.utils.train_utils import MaskGenerator, update_ema
+
+import torch
+from diffusers import PixArtAlphaPipeline, ConsistencyDecoderVAE, AutoencoderKL
+
+
+class HuggingFaceColossalAIWrapper:
+    def __init__(self, boosted_model, original_model):
+        self.boosted_model = boosted_model
+        self.original_model = original_model
+        self._copy_attributes()
+        # TODO: remove modules / weights from original_model to save the space
+
+    def _copy_attributes(self):
+        # Copy attributes from the original model that are required by diffusers
+        required_attrs = ['config', 'dtype', 'device']
+        for attr in required_attrs:
+            if hasattr(self.original_model, attr):
+                setattr(self, attr, getattr(self.original_model, attr))
+
+    def __getattr__(self, name):
+        # Delegate attribute access to the boosted model
+        if hasattr(self.boosted_model, name):
+            return getattr(self.boosted_model, name)
+        elif hasattr(self.original_model, name):
+            return getattr(self.original_model, name)
+        else:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def __call__(self, *args, **kwargs):
+        return self.boosted_model(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        # Delegate forward pass to the boosted model
+        return self.boosted_model(*args, **kwargs)
+
 
 
 from torch.optim.lr_scheduler import LRScheduler as _LRScheduler
@@ -69,7 +106,6 @@ class WarmupScheduler(_LRScheduler):
 
         # cosine warmup
         return [self.min_lr + (lr - self.min_lr) * 0.5 * (1 - torch.cos(torch.tensor((self.last_epoch + 1) / self.warmup_epochs * torch.pi))) for lr in self.base_lrs]
-
 
     def step(self, epoch: int = None):
         if self.finished:
@@ -220,58 +256,51 @@ def ensure_parent_directory_exists(file_path):
 
 
 z_log = None
-def write_sample(model, text_encoder, vae, scheduler, cfg, epoch, exp_dir, global_step, dtype, device):
+def write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device):
     prompts = cfg.eval_prompts[dist.get_rank()::dist.get_world_size()]
     if prompts:
         global z_log   
         rng_state = save_rng_state()
-        back_to_train_model = model.training
-        back_to_train_vae = vae.training
-        vae = vae.eval()
-        model = model.eval()
-        text_encoder.y_embedder = (
-            model.module.y_embedder
-        )  # hack for classifier-free guidance
         save_dir = os.path.join(
             exp_dir, f"epoch{epoch}-global_step{global_step + 1}"
         )
 
         with torch.no_grad():
-            image_size = cfg.eval_image_size
-            num_frames = cfg.eval_num_frames
+            #image_size = cfg.eval_image_size
+            #num_frames = cfg.eval_num_frames
             fps = cfg.eval_fps
             eval_batch_size = cfg.eval_batch_size
 
-            input_size = (num_frames, *image_size)
-            latent_size = vae.get_latent_size(input_size)
-            if z_log is None:
-                rng = np.random.default_rng(seed=42)
-                z_log = rng.normal(size=(len(prompts), vae.out_channels, *latent_size))
-            z = torch.tensor(z_log, device=device, dtype=float).to(dtype=dtype)
+            #input_size = (num_frames, *image_size)
+            #latent_size = vae.get_latent_size(input_size)
+            #if z_log is None:
+            #    rng = np.random.default_rng(seed=42)
+            #    z_log = rng.normal(size=(len(prompts), vae.out_channels, *latent_size))
+            #z = torch.tensor(z_log, device=device, dtype=float).to(dtype=dtype)
             set_seed_custom(42)
 
             samples = []
 
             for i in range(0, len(prompts), eval_batch_size):
                 batch_prompts = prompts[i:i + eval_batch_size]
-                batch_z = z[i:i + eval_batch_size]
-                batch_samples = scheduler.sample(
-                    model,
-                    text_encoder,
-                    z=batch_z,
-                    prompts=batch_prompts,
-                    device=device,
-                    additional_args=dict(
-                        height=torch.tensor([image_size[0]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                        width=torch.tensor([image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                        num_frames=torch.tensor([num_frames], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                        ar=torch.tensor([image_size[0] / image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                        fps=torch.tensor([fps], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                    ),
-                )
-
-                batch_samples = vae.decode(batch_samples.to(dtype))
-                samples.extend(batch_samples)
+                #batch_z = z[i:i + eval_batch_size]
+                #batch_samples = scheduler.sample(
+                #    model,
+                #    text_encoder,
+                #    z=batch_z,
+                #    prompts=batch_prompts,
+                #    device=device,
+                #    additional_args=dict(
+                #        height=torch.tensor([image_size[0]], device=device, dtype=dtype).repeat(len(batch_prompts)),
+                #        width=torch.tensor([image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
+                #        num_frames=torch.tensor([num_frames], device=device, dtype=dtype).repeat(len(batch_prompts)),
+                #        ar=torch.tensor([image_size[0] / image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
+                #        fps=torch.tensor([fps], device=device, dtype=dtype).repeat(len(batch_prompts)),
+                #    ),
+                #)
+                #batch_samples = vae.decode(batch_samples.to(dtype))
+                #samples.extend(batch_samples)
+                samples.extend(pipe(batch_prompts).images)
 
             # 4.4. save samples
             # if coordinator.is_master():
@@ -281,6 +310,8 @@ def write_sample(model, text_encoder, vae, scheduler, cfg, epoch, exp_dir, globa
                     save_dir, f"sample_{id}"
                 )
                 ensure_parent_directory_exists(save_path)
+
+                sample = np.expand_dims(np.array(sample),0)
                 save_sample(
                     sample,
                     fps=fps,
@@ -288,12 +319,11 @@ def write_sample(model, text_encoder, vae, scheduler, cfg, epoch, exp_dir, globa
                 )
 
 
-        if back_to_train_model:
-            model = model.train()
-        if back_to_train_vae:
-            vae = vae.train()
-        text_encoder.y_embedder = None
-
+        #if back_to_train_model:
+        #    model = model.train()
+        #if back_to_train_vae:
+        #    vae = vae.train()
+        #text_encoder.y_embedder = None
         load_rng_state(rng_state)
 
 def is_file_complete(file_path, interval=1, timeout=60):
@@ -441,39 +471,18 @@ def main():
     # 4. build model
     # ======================================================
     # 4.1. build model
-    text_encoder = build_module(cfg.text_encoder, MODELS, device=device)
-    vae = build_module(cfg.vae, MODELS)
-    input_size = (dataset.num_frames, *dataset.image_size)
-    latent_size = vae.get_latent_size(input_size)
-    model = build_module(
-        cfg.model,
-        MODELS,
-        input_size=latent_size,
-        in_channels=vae.out_channels,
-        caption_channels=text_encoder.output_dim,
-        model_max_length=text_encoder.model_max_length
-    )
-    model_numel, model_numel_trainable = get_model_numel(model)
-    logger.info(
-        f"Trainable model params: {format_numel_str(model_numel_trainable)}, Total model params: {format_numel_str(model_numel)}"
-    )
 
-    # 4.2. create ema
-    ema = deepcopy(model).to(torch.float32).to(device)
-    requires_grad(ema, False)
-    ema_shape_dict = record_model_param_shape(ema)
+    # You can replace the checkpoint id with "PixArt-alpha/PixArt-XL-2-512x512" too.
+    pipe = PixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-1024-MS", torch_dtype=torch.bfloat16, use_safetensors=True)
+    pipe.to(device)
+    pipe.transformer.train()
 
-    # 4.3. move to device
-    vae = vae.to(device, dtype)
-    model = model.to(device, dtype)
-
-    # 4.4. build scheduler
     scheduler = build_module(cfg.scheduler, SCHEDULERS)
     scheduler_inference = build_module(cfg.scheduler_inference, SCHEDULERS)
 
     # 4.5. setup optimizer
     optimizer = HybridAdam(
-        filter(lambda p: p.requires_grad, model.parameters()),
+        filter(lambda p: p.requires_grad, pipe.transformer.parameters()),
         lr=cfg.lr,
         weight_decay=0,
         adamw_mode=True,
@@ -486,10 +495,7 @@ def main():
     
     # 4.6. prepare for training
     if cfg.grad_checkpoint:
-        set_grad_checkpoint(model)
-    model.train()
-    update_ema(ema, model, decay=0, sharded=False)
-    ema.eval()
+        set_grad_checkpoint(pipe.transformer)
     if cfg.mask_ratios is not None:
         mask_generator = MaskGenerator(cfg.mask_ratios)
 
@@ -497,12 +503,13 @@ def main():
     # 5. boost model for distributed training with colossalai
     # =======================================================
     torch.set_default_dtype(dtype)
-    model, optimizer, _, dataloader, lr_scheduler = booster.boost(
-        model=model,
+    boosted_transformer, optimizer, _, dataloader, lr_scheduler = booster.boost(
+        model=pipe.transformer,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         dataloader=dataloader,
     )
+    pipe.transformer = HuggingFaceColossalAIWrapper(boosted_transformer, pipe.transformer)
     torch.set_default_dtype(torch.float)
     logger.info("Boost model for distributed training")
     if cfg.dataset.type == "VariableVideoTextDataset":
@@ -521,8 +528,8 @@ def main():
         logger.info("Loading checkpoint")
         ret = load(
             booster,
-            model,
-            ema,
+            pipe,
+            None,
             optimizer,
             None,# lr_scheduler,
             cfg.load,
@@ -541,12 +548,11 @@ def main():
 
     if cfg.dataset.type == "VideoTextDataset":
         dataloader.sampler.set_start_index(sampler_start_idx)
-    model_sharding(ema)
 
     # log prompts for pre-training ckpt
     first_global_step = start_epoch * num_steps_per_epoch + start_step
 
-    write_sample(model, text_encoder, vae, scheduler_inference, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
+    write_sample(pipe, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
     log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
     
 
@@ -567,40 +573,95 @@ def main():
             iteration_times = []
             for step, batch in pbar:
                 start_time = time.time()
-                x = batch.pop("video").to(device, dtype)  # [B, C, T, H, W]
+                x = batch.pop("video")  # [B, C, T, H, W]
                 y = batch.pop("text")
                 # Visual and text encoding
                 with torch.no_grad():
-                    # Prepare visual inputs
-                    x = vae.encode(x)  # [B, C, T, H/P, W/P]
+
+                    # for debugging: prepare visual inputs
+                    #tsize = x.shape[2]
+                    #x = rearrange(x, "b c t w h -> (b t) c w h")
+
+                    # choose time frames to optimize
+                    x = x[:, :, :2, :, :]
+                    tsize = x.shape[2]
+                    x = rearrange(x, "b c t w h -> (b t) c w h").to(device, dtype)
+
+                    # encode
+                    x = pipe.vae.encode(x)[0].sample()  # [B, C, H/P, W/P]
+
+                    # TODO: pixart creates only [B, C, 2*h, 2*w] images due to P==2
+                    if x.shape[-2] % 2 == 1:
+                        x = x[..., :-1, :]
+                    if x.shape[-1] % 2 == 1:
+                        x = x[..., :, :-1]
+                    
+                    # to gpu & split
+                    #x = x.split(1, dim=2)
+
                     # Prepare text inputs
-                    model_args = text_encoder.encode(y)
+                    # rewrite of:
+                    #   text_embeddings = pipe.encode_prompt(y)[0].repeat(tsize, 1, 1)
+                    # use batched clip:
+                    input_ids = pipe.tokenizer(y, return_tensors="pt", truncation=False, padding=True).input_ids.to("cuda")
+                    text_embeddings = []
+                    for i in range(0, input_ids.shape[-1], pipe.tokenizer.model_max_length):
+                        text_embeddings.append(
+                            pipe.text_encoder(
+                                input_ids[:, i: i + pipe.tokenizer.model_max_length]
+                            )[0]
+                        )
+                    input_ids = None
+                    text_embeddings = torch.cat(text_embeddings, dim=1)#.repeat(tsize, 1, 1)
+
+                added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
 
                 # Mask
-                if cfg.mask_ratios is not None:
+                if False and cfg.mask_ratios is not None:
                     mask = mask_generator.get_masks(x)
-                    model_args["x_mask"] = mask
+                    added_cond_kwargs["x_mask"] = mask
                 else:
                     mask = None
 
                 # Video info
-                for k, v in batch.items():
-                    model_args[k] = v.to(device, dtype)
+                #for k, v in batch.items():
+                #    model_args[k] = v.to(device, dtype)
 
-                # Diffusion
+                #x = rearrange(x, "(b t) c w h -> b c t w h ", t=tsize)
+                #x = x[0].squeeze()
+
+                # 6.1 Prepare micro-conditions. (from https://github.com/huggingface/diffusers/blob/d457beed92e768af6090238962a93c4cf4792e8f/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py#L882)
+                if pipe.transformer.config.sample_size == 128:
+                    resolution = torch.stack([batch["height"],batch["width"]], 1)#.repeat(tsize, 1, 1).reshape([-1])
+                    aspect_ratio = batch["ar"]#.repeat(tsize)
+                    resolution = resolution.to(dtype=x.dtype, device=device)
+                    aspect_ratio = aspect_ratio.to(dtype=x.dtype, device=device)
+
+                    #if do_classifier_free_guidance:
+                    #    resolution = torch.cat([resolution, resolution], dim=0)
+                    #    aspect_ratio = torch.cat([aspect_ratio, aspect_ratio], dim=0)
+
+                    added_cond_kwargs["resolution"] = resolution
+                    added_cond_kwargs["aspect_ratio"] = aspect_ratio
+
+
+                # Diffusion using diffusers
+                #t = torch.randint(0, pipe.scheduler.num_train_timesteps, (x.shape[0],), device=device)
+                #noise = torch.randn(x.shape, device=x.device, dtype=x.dtype)
+                #noisy_x = pipe.scheduler.add_noise(x, noise, t)
+                #noise_pred = pipe.transformer(noisy_x, text_embeddings, timestep=t, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
+                #loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
+
+                # Diffusion using Open-Sora code
                 t = torch.randint(0, scheduler.num_timesteps, (x.shape[0],), device=device)
-                loss_dict = scheduler.training_losses(model, x, t, model_args, mask=mask)
-
-                # Backward & update
+                loss_dict = scheduler.training_losses(lambda x,t: pipe.transformer(x, text_embeddings, timestep=t, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0], x, t)
                 loss = loss_dict["loss"].mean()
+
                 booster.backward(loss=loss, optimizer=optimizer)
                 optimizer.step()
                 optimizer.zero_grad()
                 if lr_scheduler is not None:
                     lr_scheduler.step()
-
-                # Update EMA
-                update_ema(ema, model.module, optimizer=optimizer)
 
                 # Log loss values:
                 all_reduce_mean(loss)
@@ -619,7 +680,7 @@ def main():
                     log_step = 0
                     writer.add_scalar("loss", loss.item(), global_step)
 
-                    weight_norm = calculate_weight_norm(model)
+                    weight_norm = calculate_weight_norm(pipe.transformer)
 
                     if cfg.wandb:
                         wandb.log(
@@ -641,8 +702,8 @@ def main():
                 if cfg.ckpt_every > 0 and global_step % cfg.ckpt_every == 0 and global_step != 0:
                     save(
                         booster,
-                        model,
-                        ema,
+                        pipe.transformer.boosted_model,
+                        None,
                         optimizer,
                         lr_scheduler,
                         epoch,
@@ -651,7 +712,7 @@ def main():
                         cfg.batch_size,
                         coordinator,
                         exp_dir,
-                        ema_shape_dict,
+                        None,
                         sampler=sampler_to_io,
                     )
                     logger.info(
@@ -660,7 +721,7 @@ def main():
 
                     # log prompts for each checkpoints
                 if global_step % cfg.eval_steps == 0:
-                    write_sample(model, text_encoder, vae, scheduler_inference, cfg, epoch, exp_dir, global_step, dtype, device)
+                    write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device)
                     log_sample(coordinator.is_master(), cfg, epoch, exp_dir, global_step)
 
         # the continue epochs are not resumed, so we need to reset the sampler start index and start step

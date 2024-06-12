@@ -180,11 +180,11 @@ def save(
 
     booster.save_model(model, os.path.join(save_dir, "model"), shard=True)
     # ema is not boosted, so we don't need to use booster.save_model
-    model_gathering(ema, shape_dict)
+    # model_gathering(ema, shape_dict)
     global_rank = dist.get_rank()
-    if int(global_rank) == 0:
-        torch.save(ema.state_dict(), os.path.join(save_dir, "ema.pt"))
-        model_sharding(ema)
+    # if int(global_rank) == 0:
+    #     torch.save(ema.state_dict(), os.path.join(save_dir, "ema.pt"))
+    #     model_sharding(ema)
 
     booster.save_optimizer(optimizer, os.path.join(save_dir, "optimizer"), shard=True, size_per_shard=4096)
     if lr_scheduler is not None:

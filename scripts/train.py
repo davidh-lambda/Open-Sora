@@ -546,8 +546,8 @@ def main():
     # log prompts for pre-training ckpt
     first_global_step = start_epoch * num_steps_per_epoch + start_step
 
-    write_sample(model, text_encoder, vae, scheduler_inference, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
-    log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
+    #write_sample(model, text_encoder, vae, scheduler_inference, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
+    #log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
     
 
     # 6.2. training loop
