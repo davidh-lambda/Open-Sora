@@ -125,7 +125,7 @@ eval_image_size = (512, 512)
 eval_num_frames = 1
 eval_fps = 8
 eval_batch_size = 2
-eval_steps = 1
+eval_steps = ckpt_every
 
 wandb_project_name = "qss_timedit"
 wandb_project_entity = "lambdalabs"

@@ -39,6 +39,7 @@ from opensora.utils.train_utils import MaskGenerator, update_ema
 
 import torch
 from diffusers import PixArtAlphaPipeline, ConsistencyDecoderVAE, AutoencoderKL
+from diffusers.models import PixArtTransformer2DModel
 
 
 class HuggingFaceColossalAIWrapper:
@@ -257,7 +258,7 @@ def ensure_parent_directory_exists(file_path):
 
 
 z_log = None
-def write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device):
+def write_sample(pipe, transformer, scheduler, cfg, epoch, exp_dir, global_step, dtype, device):
     prompts = cfg.eval_prompts[dist.get_rank()::dist.get_world_size()]
     if prompts:
         global z_log   
@@ -267,41 +268,74 @@ def write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device):
         )
 
         with torch.no_grad():
-            #image_size = cfg.eval_image_size
-            #num_frames = cfg.eval_num_frames
+            image_size = cfg.eval_image_size
+            num_frames = cfg.eval_num_frames
             fps = cfg.eval_fps
             eval_batch_size = cfg.eval_batch_size
 
-            #input_size = (num_frames, *image_size)
+            input_size = (num_frames, *image_size)
             #latent_size = vae.get_latent_size(input_size)
-            #if z_log is None:
-            #    rng = np.random.default_rng(seed=42)
-            #    z_log = rng.normal(size=(len(prompts), vae.out_channels, *latent_size))
-            #z = torch.tensor(z_log, device=device, dtype=float).to(dtype=dtype)
+            if z_log is None:
+                rng = np.random.default_rng(seed=42)
+                #z_log = rng.normal(size=(len(prompts), vae.out_channels, *latent_size))
+                z_log = rng.normal(size=(len(prompts), 4, 44, 80))
+            z = torch.tensor(z_log, device=device, dtype=float).to(dtype=dtype)
             set_seed_custom(42)
 
             samples = []
+            num_timesteps = pipe.scheduler.num_train_timesteps
 
             for i in range(0, len(prompts), eval_batch_size):
                 batch_prompts = prompts[i:i + eval_batch_size]
-                #batch_z = z[i:i + eval_batch_size]
-                #batch_samples = scheduler.sample(
-                #    model,
-                #    text_encoder,
-                #    z=batch_z,
-                #    prompts=batch_prompts,
-                #    device=device,
-                #    additional_args=dict(
-                #        height=torch.tensor([image_size[0]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                #        width=torch.tensor([image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                #        num_frames=torch.tensor([num_frames], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                #        ar=torch.tensor([image_size[0] / image_size[1]], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                #        fps=torch.tensor([fps], device=device, dtype=dtype).repeat(len(batch_prompts)),
-                #    ),
-                #)
-                #batch_samples = vae.decode(batch_samples.to(dtype))
-                #samples.extend(batch_samples)
-                samples.extend(pipe(batch_prompts).images)
+                #text_embeddings = pipe.encode_prompt(batch_prompts)[0]
+                input_ids = pipe.tokenizer(batch_prompts, return_tensors="pt", truncation=False, padding=True).input_ids.to("cuda")
+                text_embeddings = []
+                for i in range(0, input_ids.shape[-1], pipe.tokenizer.model_max_length):
+                    text_embeddings.append(
+                        pipe.text_encoder(
+                            input_ids[:, i: i + pipe.tokenizer.model_max_length]
+                        )[0]
+                    )
+                input_ids = None
+                text_embeddings = torch.cat(text_embeddings, dim=1)#.repeat(tsize, 1, 1)
+                batch_z = z[i:i + eval_batch_size]
+
+                added_cond_kwargs = {}
+                resolution = torch.tensor([*image_size]).repeat(eval_batch_size).reshape([-1]).to(device, dtype)
+                aspect_ratio = torch.tensor([image_size[0]/image_size[1]]).repeat(eval_batch_size).to(device, dtype)
+                added_cond_kwargs["resolution"] = resolution
+                added_cond_kwargs["aspect_ratio"] = aspect_ratio
+
+                model = lambda x, t, y=text_embeddings, **kwargs: transformer(x, y, timestep=t, return_dict=False, added_cond_kwargs=added_cond_kwargs, **kwargs)[0]
+                model.forward = model
+                batch_samples = scheduler.sample(
+                    model,
+                    text_embeddings,
+                    z=batch_z,
+                    prompts=batch_prompts,
+                    device=device,
+                )
+
+                # TODO:
+                # - perform one step of image diffusion
+                # - perform video diffusion on the first step (as many frames as needed)
+                # - "enhance" each frame using rest of image diffusions
+                # for t in range(num_timesteps):
+                #     # Compute model output (predicted noise)
+                #     model_output = pipe.transformer(batch_z, text_embeddings, timestep=torch.tensor([t], device=device).repeat(eval_batch_size), added_cond_kwargs=added_cond_kwargs).sample
+
+                #     # You can add your custom logic here to adapt each intermediate step
+                #     # For example, you could apply a custom transformation to the model output
+                #     #model_output = custom_transformation(model_output, t)
+                    
+                #     # Perform one step of the reverse diffusion process
+                #     image = pipe.scheduler.step(model_output, t, image).prev_sample
+
+                images_frame_1 = pipe.vae.decode(batch_z.to(dtype)).sample
+                images_frame_2 = pipe.vae.decode(batch_samples.to(dtype)).sample
+                images = torch.stack([images_frame_1, images_frame_2], dim=2).squeeze()
+                samples.append(images.to("cpu", torch.float))
+
 
             # 4.4. save samples
             # if coordinator.is_master():
@@ -312,7 +346,6 @@ def write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device):
                 )
                 ensure_parent_directory_exists(save_path)
 
-                sample = np.expand_dims(np.array(sample),0)
                 save_sample(
                     sample,
                     fps=fps,
@@ -479,21 +512,27 @@ def main():
     pipe.transformer.eval()
 
     # time dit
-    model = build_module(
-        cfg.model,
-        MODELS,
-        # input_size=[None, None],
-        in_channels=pipe.vae.config.out_channels,
-        caption_channels=pipe.text_encoder.config.d_model,
-        model_max_length=pipe.tokenizer.model_max_length
-    )
+    # model = build_module(
+    #     cfg.model,
+    #     MODELS,
+    #     # input_size=[None, None],
+    #     in_channels=pipe.vae.config.out_channels,
+    #     caption_channels=pipe.text_encoder.config.d_model,
+    #     model_max_length=pipe.tokenizer.model_max_length
+    # )
+    transformer = PixArtTransformer2DModel.from_config(pipe.transformer.config)
+    transformer.to(device)
+    transformer.train()
+
+
 
     scheduler = build_module(cfg.scheduler, SCHEDULERS)
     scheduler_inference = build_module(cfg.scheduler_inference, SCHEDULERS)
 
     # 4.5. setup optimizer
     optimizer = HybridAdam(
-        filter(lambda p: p.requires_grad, pipe.transformer.parameters()),
+        # filter(lambda p: p.requires_grad, pipe.transformer.parameters()),
+        filter(lambda p: p.requires_grad, transformer.parameters()),
         lr=cfg.lr,
         weight_decay=0,
         adamw_mode=True,
@@ -506,7 +545,8 @@ def main():
     
     # 4.6. prepare for training
     if cfg.grad_checkpoint:
-        set_grad_checkpoint(pipe.transformer)
+        set_grad_checkpoint(transformer)
+        # set_grad_checkpoint(pipe.transformer)
     if cfg.mask_ratios is not None:
         mask_generator = MaskGenerator(cfg.mask_ratios)
 
@@ -514,18 +554,19 @@ def main():
     # 5. boost model for distributed training with colossalai
     # =======================================================
     torch.set_default_dtype(dtype)
-    model, optimizer, _, dataloader, lr_scheduler = booster.boost(
-        model=model,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
-        dataloader=dataloader,
+    #model, optimizer, _, dataloader, lr_scheduler = booster.boost(
+    #    model=model,
+    #    optimizer=optimizer,
+    #    lr_scheduler=lr_scheduler,
+    #    dataloader=dataloader,
+    #)
+    boosted_transformer, optimizer, _, dataloader, lr_scheduler = booster.boost(
+         model=transformer,
+         optimizer=optimizer,
+         lr_scheduler=lr_scheduler,
+         dataloader=dataloader,
     )
-    # boosted_transformer, optimizer, _, dataloader, lr_scheduler = booster.boost(
-    #     model=pipe.transformer,
-    #     optimizer=optimizer,
-    #     lr_scheduler=lr_scheduler,
-    #     dataloader=dataloader,
-    # )
+    transformer = HuggingFaceColossalAIWrapper(boosted_transformer, transformer)
     # pipe.transformer = HuggingFaceColossalAIWrapper(boosted_transformer, pipe.transformer)
     torch.set_default_dtype(torch.float)
     logger.info("Boost model for distributed training")
@@ -569,7 +610,7 @@ def main():
     # log prompts for pre-training ckpt
     first_global_step = start_epoch * num_steps_per_epoch + start_step
 
-    write_sample(pipe, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
+    write_sample(pipe, transformer, scheduler_inference, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
     log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
     
 
@@ -646,6 +687,7 @@ def main():
 
                 x = rearrange(x, "(b t) c w h -> b c t w h ", t=tsize)
                 x = [xi.squeeze() for xi in x.split(1, dim=2)]
+                x = [x[0], x[0]]
                 shape = x[0].shape
                 #x = x[0].squeeze()
 
@@ -663,31 +705,32 @@ def main():
                     added_cond_kwargs["resolution"] = resolution
                     added_cond_kwargs["aspect_ratio"] = aspect_ratio
 
-                # global noise
-                noise_vid = torch.randn(shape, device=device, dtype=dtype)
+                # diffusion timesteps
                 t_vid = torch.randint(0, pipe.scheduler.num_train_timesteps, (shape[0],), device=device)
-
-                # image noise
-                loss = 0
                 t_img = torch.tensor(pipe.scheduler.num_train_timesteps - 1).repeat(shape[0]).to(device)
-                for i in range(num_frames):
-                    model_args_x = deepcopy(model_args)
-                    model_args_x["frame_num"] = torch.tensor(i, device=device, dtype=dtype)
 
-                    # learn noise_vid -> noise_vid + noise_img
-                    noise_img = torch.randn(shape, device=device, dtype=dtype)
-                    noisy_x = scheduler.q_sample(x[0], t_img, noise=(noise_img + noise_vid)/math.sqrt(2)).to(device, dtype)
-                    pred_x_merged = pipe.transformer(noisy_x, text_embeddings, timestep=t_img, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
-                    pred_x, _ = torch.split(pred_x_merged, shape[1], dim=1)
-                    loss += scheduler.training_losses(model, pred_x, t_vid, model_args_x, noise=noise_vid)["loss"].mean()
+                # global noise (image seed)
+                noise_vid = torch.randn(shape, device=device, dtype=dtype)
 
-                    # this removes gradient components of joint noise (noise_vid)
-                    noisy_x = scheduler.q_sample(x[0], t_img, noise=noise_vid).to(device, dtype)
-                    pred_x_merged = pipe.transformer(noisy_x, text_embeddings, timestep=t_img, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
-                    pred_x, _ = torch.split(pred_x_merged, shape[1], dim=1)
-                    loss -= scheduler.training_losses(model, pred_x, t_vid, model_args_x, noise=noise_vid)["loss"].mean()
+                # image noise (animation)
+                loss = 0
+                frames_pos = []
+                frames_neg = []
+                for frame in x:
+                    noise_frame = torch.randn(shape, device=device, dtype=dtype)
+                    for frames in [frames_pos, frames_neg]:
+                        full_noise_frame = (noise_frame + noise_vid)/math.sqrt(2) if frames == frames_pos else noise_vid
+                        frame_noisy = scheduler.q_sample(frame, t_img, noise=full_noise_frame).to(device, dtype)
+                        frame_pred_merged = pipe.transformer(frame_noisy, text_embeddings, timestep=t_img, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
+                        frame_pred = torch.split(frame_pred_merged, shape[1], dim=1)[0]
+                        frames.append(frame_pred)
 
-                # Diffusion using diffusers
+                # compute loss
+                model = lambda x, t, **kwargs: transformer(x, text_embeddings, timestep=t, return_dict=False, **kwargs)[0]
+                loss += scheduler.training_losses(model, frames_pos[0], t_vid, {"added_cond_kwargs": added_cond_kwargs}, noise=frames_pos[1])["loss"].mean()
+                loss += (-scheduler.training_losses(model, frames_neg[0], t_vid, {"added_cond_kwargs": added_cond_kwargs}, noise=frames_neg[1])["loss"].mean()).abs()
+
+                # Diffusion using pip-diffusers
                 #t = torch.randint(0, pipe.scheduler.num_train_timesteps, (x.shape[0],), device=device)
                 #noise = torch.randn(x.shape, device=x.device, dtype=x.dtype)
                 #noisy_x = pipe.scheduler.add_noise(x, noise, t)
@@ -741,10 +784,10 @@ def main():
                         iteration_times = []
 
                 # Save checkpoint
-                if cfg.ckpt_every > 0 and global_step % cfg.ckpt_every == 0 and global_step != 0:
+                if True or cfg.ckpt_every > 0 and global_step % cfg.ckpt_every == 0 and global_step != 0:
                     save(
                         booster,
-                        pipe.transformer.boosted_model,
+                        transformer.boosted_model,
                         None,
                         optimizer,
                         lr_scheduler,
@@ -763,7 +806,7 @@ def main():
 
                     # log prompts for each checkpoints
                 if global_step % cfg.eval_steps == 0:
-                    write_sample(pipe, cfg, epoch, exp_dir, global_step, dtype, device)
+                    write_sample(pipe, transformer, scheduler_inference, cfg, epoch, exp_dir, global_step, dtype, device)
                     log_sample(coordinator.is_master(), cfg, epoch, exp_dir, global_step)
 
         # the continue epochs are not resumed, so we need to reset the sampler start index and start step
