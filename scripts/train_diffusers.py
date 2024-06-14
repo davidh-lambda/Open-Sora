@@ -116,6 +116,7 @@ class WarmupScheduler(_LRScheduler):
         else:
             return super().step(epoch)
 
+
 class ConstantWarmupLR(WarmupScheduler):
     """Multistep learning rate scheduler with warmup.
 
@@ -475,7 +476,17 @@ def main():
     # You can replace the checkpoint id with "PixArt-alpha/PixArt-XL-2-512x512" too.
     pipe = PixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-1024-MS", torch_dtype=torch.bfloat16, use_safetensors=True)
     pipe.to(device)
-    pipe.transformer.train()
+    pipe.transformer.eval()
+
+    # time dit
+    model = build_module(
+        cfg.model,
+        MODELS,
+        # input_size=[None, None],
+        in_channels=pipe.vae.config.out_channels,
+        caption_channels=pipe.text_encoder.config.d_model,
+        model_max_length=pipe.tokenizer.model_max_length
+    )
 
     scheduler = build_module(cfg.scheduler, SCHEDULERS)
     scheduler_inference = build_module(cfg.scheduler_inference, SCHEDULERS)
@@ -503,13 +514,19 @@ def main():
     # 5. boost model for distributed training with colossalai
     # =======================================================
     torch.set_default_dtype(dtype)
-    boosted_transformer, optimizer, _, dataloader, lr_scheduler = booster.boost(
-        model=pipe.transformer,
+    model, optimizer, _, dataloader, lr_scheduler = booster.boost(
+        model=model,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         dataloader=dataloader,
     )
-    pipe.transformer = HuggingFaceColossalAIWrapper(boosted_transformer, pipe.transformer)
+    # boosted_transformer, optimizer, _, dataloader, lr_scheduler = booster.boost(
+    #     model=pipe.transformer,
+    #     optimizer=optimizer,
+    #     lr_scheduler=lr_scheduler,
+    #     dataloader=dataloader,
+    # )
+    # pipe.transformer = HuggingFaceColossalAIWrapper(boosted_transformer, pipe.transformer)
     torch.set_default_dtype(torch.float)
     logger.info("Boost model for distributed training")
     if cfg.dataset.type == "VariableVideoTextDataset":
@@ -583,7 +600,8 @@ def main():
                     #x = rearrange(x, "b c t w h -> (b t) c w h")
 
                     # choose time frames to optimize
-                    x = x[:, :, :2, :, :]
+                    num_frames = 2
+                    x = x[:, :, :num_frames, :, :]
                     tsize = x.shape[2]
                     x = rearrange(x, "b c t w h -> (b t) c w h").to(device, dtype)
 
@@ -596,8 +614,6 @@ def main():
                     if x.shape[-1] % 2 == 1:
                         x = x[..., :, :-1]
                     
-                    # to gpu & split
-                    #x = x.split(1, dim=2)
 
                     # Prepare text inputs
                     # rewrite of:
@@ -624,18 +640,21 @@ def main():
                     mask = None
 
                 # Video info
-                #for k, v in batch.items():
-                #    model_args[k] = v.to(device, dtype)
+                model_args = {"y": text_embeddings}
+                for k, v in batch.items():
+                    model_args[k] = v.to(device, dtype)
 
-                #x = rearrange(x, "(b t) c w h -> b c t w h ", t=tsize)
+                x = rearrange(x, "(b t) c w h -> b c t w h ", t=tsize)
+                x = [xi.squeeze() for xi in x.split(1, dim=2)]
+                shape = x[0].shape
                 #x = x[0].squeeze()
 
                 # 6.1 Prepare micro-conditions. (from https://github.com/huggingface/diffusers/blob/d457beed92e768af6090238962a93c4cf4792e8f/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py#L882)
                 if pipe.transformer.config.sample_size == 128:
                     resolution = torch.stack([batch["height"],batch["width"]], 1)#.repeat(tsize, 1, 1).reshape([-1])
                     aspect_ratio = batch["ar"]#.repeat(tsize)
-                    resolution = resolution.to(dtype=x.dtype, device=device)
-                    aspect_ratio = aspect_ratio.to(dtype=x.dtype, device=device)
+                    resolution = resolution.to(dtype=dtype, device=device)
+                    aspect_ratio = aspect_ratio.to(dtype=dtype, device=device)
 
                     #if do_classifier_free_guidance:
                     #    resolution = torch.cat([resolution, resolution], dim=0)
@@ -644,6 +663,29 @@ def main():
                     added_cond_kwargs["resolution"] = resolution
                     added_cond_kwargs["aspect_ratio"] = aspect_ratio
 
+                # global noise
+                noise_vid = torch.randn(shape, device=device, dtype=dtype)
+                t_vid = torch.randint(0, pipe.scheduler.num_train_timesteps, (shape[0],), device=device)
+
+                # image noise
+                loss = 0
+                t_img = torch.tensor(pipe.scheduler.num_train_timesteps - 1).repeat(shape[0]).to(device)
+                for i in range(num_frames):
+                    model_args_x = deepcopy(model_args)
+                    model_args_x["frame_num"] = torch.tensor(i, device=device, dtype=dtype)
+
+                    # learn noise_vid -> noise_vid + noise_img
+                    noise_img = torch.randn(shape, device=device, dtype=dtype)
+                    noisy_x = scheduler.q_sample(x[0], t_img, noise=(noise_img + noise_vid)/math.sqrt(2)).to(device, dtype)
+                    pred_x_merged = pipe.transformer(noisy_x, text_embeddings, timestep=t_img, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
+                    pred_x, _ = torch.split(pred_x_merged, shape[1], dim=1)
+                    loss += scheduler.training_losses(model, pred_x, t_vid, model_args_x, noise=noise_vid)["loss"].mean()
+
+                    # this removes gradient components of joint noise (noise_vid)
+                    noisy_x = scheduler.q_sample(x[0], t_img, noise=noise_vid).to(device, dtype)
+                    pred_x_merged = pipe.transformer(noisy_x, text_embeddings, timestep=t_img, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0]
+                    pred_x, _ = torch.split(pred_x_merged, shape[1], dim=1)
+                    loss -= scheduler.training_losses(model, pred_x, t_vid, model_args_x, noise=noise_vid)["loss"].mean()
 
                 # Diffusion using diffusers
                 #t = torch.randint(0, pipe.scheduler.num_train_timesteps, (x.shape[0],), device=device)
@@ -653,9 +695,9 @@ def main():
                 #loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
 
                 # Diffusion using Open-Sora code
-                t = torch.randint(0, scheduler.num_timesteps, (x.shape[0],), device=device)
-                loss_dict = scheduler.training_losses(lambda x,t: pipe.transformer(x, text_embeddings, timestep=t, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0], x, t)
-                loss = loss_dict["loss"].mean()
+                #t = torch.randint(0, scheduler.num_timesteps, (x.shape[0],), device=device)
+                #loss_dict = scheduler.training_losses(lambda x,t: pipe.transformer(x, text_embeddings, timestep=t, added_cond_kwargs=added_cond_kwargs, return_dict=False)[0], x, t)
+                #loss = loss_dict["loss"].mean()
 
                 booster.backward(loss=loss, optimizer=optimizer)
                 optimizer.step()
