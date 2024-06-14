@@ -48,12 +48,13 @@ model = dict(
     type="STDiT2-XL/2",
     space_scale=1.0,
     time_scale=1.0,
-    from_pretrained="./pretrained_models/PixArt-XL-2-512x512.pth",
-    #from_pretrained=None,
+    #from_pretrained="./pretrained_models/PixArt-XL-2-512x512.pth",
+    from_pretrained=None,
     input_sq_size=512,  # pretrained model is trained on 512x512
     qk_norm=True,
     enable_flash_attn=True,
     enable_layernorm_kernel=True,
+    in_channels=4
 )
 # model = dict(
 #     type="PixArt-XL/2",
@@ -124,7 +125,7 @@ eval_image_size = (512, 512)
 eval_num_frames = 1
 eval_fps = 8
 eval_batch_size = 2
-eval_steps = ckpt_every
+eval_steps = 1
 
 wandb_project_name = "qss_timedit"
 wandb_project_entity = "lambdalabs"

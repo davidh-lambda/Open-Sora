@@ -7,12 +7,12 @@ from rotary_embedding_torch import RotaryEmbedding
 from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 
+from timm.models.vision_transformer import PatchEmbed, Mlp
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.models.layers.blocks import (
     Attention,
     CaptionEmbedder,
     MultiHeadCrossAttention,
-    PatchEmbed3D,
     PositionEmbedding2D,
     SizeEmbedder,
     T2IFinalLayer,
@@ -179,7 +179,7 @@ class STDiT2Config(PretrainedConfig):
         input_size=(None, None, None),
         input_sq_size=32,
         in_channels=4,
-        patch_size=(1, 2, 2),
+        patch_size=(2, 2),
         hidden_size=1152,
         depth=28,
         num_heads=16,
@@ -228,7 +228,7 @@ class STDiT2(PreTrainedModel):
     ):
         super().__init__(config)
         self.pred_sigma = config.pred_sigma
-        self.in_channels = config.in_channels
+        self.in_channels = 4#config.in_channels
         self.out_channels = config.in_channels * 2 if config.pred_sigma else config.in_channels
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_heads
@@ -242,9 +242,9 @@ class STDiT2(PreTrainedModel):
         self.patch_size = config.patch_size
         self.input_size = config.input_size
         self.input_sq_size = config.input_sq_size
-        self.pos_embed = PositionEmbedding2D(config.hidden_size)
+        self.pos_embed = PositionEmbedding3D(config.hidden_size)
 
-        self.x_embedder = PatchEmbed3D(config.patch_size, config.in_channels, config.hidden_size)
+        self.x_embedder = PatchEmbed(None, self.patch_size, self.in_channels, config.hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(config.hidden_size)
         self.t_block = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 6 * config.hidden_size, bias=True))
         # self.t_block_temp = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 3 * config.hidden_size, bias=True))  # new
@@ -269,11 +269,14 @@ class STDiT2(PreTrainedModel):
                     enable_layernorm_kernel=self.enable_layernorm_kernel,
                     # rope=self.rope.rotate_queries_or_keys,
                     # qk_norm=config.qk_norm,
-                )
+                ) 
                 for i in range(self.depth)
             ]
         )
         self.final_layer = T2IFinalLayer(config.hidden_size, np.prod(self.patch_size), self.out_channels)
+
+        self.t_embedder2 = TimestepEmbedder(config.hidden_size)
+        self.t_block2 = nn.Sequential(nn.SiLU(), nn.Linear(config.hidden_size, 6 * config.hidden_size, bias=True))
 
         # multi_res
         assert self.hidden_size % 3 == 0, "hidden_size must be divisible by 3"
@@ -293,20 +296,20 @@ class STDiT2(PreTrainedModel):
                 self.freeze_text()
 
     def get_dynamic_size(self, x):
-        _, _, T, H, W = x.size()
-        if T % self.patch_size[0] != 0:
-            T += self.patch_size[0] - T % self.patch_size[0]
-        if H % self.patch_size[1] != 0:
-            H += self.patch_size[1] - H % self.patch_size[1]
-        if W % self.patch_size[2] != 0:
+        _, _, H, W = x.size()
+        #if T % self.patch_size[0] != 0:
+        #    T += self.patch_size[0] - T % self.patch_size[0]
+        if H % self.patch_size[0] != 0:
+            H += self.patch_size[0] - H % self.patch_size[1]
+        if W % self.patch_size[1] != 0:
             W += self.patch_size[2] - W % self.patch_size[2]
-        T = T // self.patch_size[0]
-        H = H // self.patch_size[1]
-        W = W // self.patch_size[2]
-        return (T, H, W)
+        #T = T // self.patch_size[0]
+        H = H // self.patch_size[0]
+        W = W // self.patch_size[1]
+        return (H, W)
 
     def forward(
-        self, x, timestep, y, mask=None, x_mask=None, num_frames=None, height=None, width=None, ar=None, fps=None
+        self, x, timestep, y, mask=None, x_mask=None, num_frames=None, height=None, width=None, ar=None, fps=None, frame_num=None
     ):
         """
         Forward pass of STDiT.
@@ -317,12 +320,13 @@ class STDiT2(PreTrainedModel):
             mask (torch.Tensor): mask for selecting prompt tokens; of shape [B, N_token]
 
         Returns:
-            x (torch.Tensor): output latent representation; of shape [B, C, T, H, W]
+            x  (torch.Tensor): output latent representation; of shape [B, C, T, H, W]
         """
         B = x.shape[0]
         dtype = self.x_embedder.proj.weight.dtype
         x = x.to(dtype)
         timestep = timestep.to(dtype)
+        frame_num = frame_num.to(dtype)
         y = y.to(dtype)
 
         # === process data info ===
@@ -343,8 +347,7 @@ class STDiT2(PreTrainedModel):
         # fl = fl + self.fps_embedder(fps, B)
 
         # === get dynamic shape size ===
-        _, _, Tx, Hx, Wx = x.size()
-        T, H, W = self.get_dynamic_size(x)
+        H, W = self.get_dynamic_size(x)
         S = H * W
         scale = rs / self.input_sq_size
         base_size = round(S**0.5)
@@ -352,9 +355,9 @@ class STDiT2(PreTrainedModel):
 
         # embedding
         x = self.x_embedder(x)  # [B, N, C]
-        x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
+        #x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
         x = x + pos_emb
-        x = rearrange(x, "B T S C -> B (T S) C")
+        #x = rearrange(x, "B T S C -> B (T S) C")
 
         # prepare adaIN
         t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
@@ -374,6 +377,10 @@ class STDiT2(PreTrainedModel):
             t0_tmp = None
             t0_spc_mlp = None
             t0_tmp_mlp = None
+
+
+        tf = self.t_embedder2(num_frames, dtype=x.dtype)  # [B, C]
+        tf = self.t_block2(tf)  # [B, 6*C]
 
         # prepare y
         y = self.y_embedder(y, self.training)  # [B, 1, N_token, C]
@@ -410,8 +417,8 @@ class STDiT2(PreTrainedModel):
         #x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)  # [B, C_out, T, H, W]
 
         x = self.final_layer(x, t)  # (N, T, patch_size ** 2 * out_channels)
-        x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)  # [B, C_out, T, H, W]
-        # x = self.unpatchify_pixart(x)  # (N, out_channels, H, W)
+        #x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)  # [B, C_out, T, H, W]
+        x = self.unpatchify_pixart(x)  # (N, out_channels, H, W)
 
 
         # cast to float32 for better accuracy
@@ -445,15 +452,15 @@ class STDiT2(PreTrainedModel):
         x = x[:, :, :R_t, :R_h, :R_w]
         return x
 
-    def unpatchify_old(self, x):
-        c = self.out_channels
-        t, h, w = [s // self.patch_size[i] for i, s in enumerate(x.size())]
-        pt, ph, pw = self.patch_size
+    # def unpatchify_old(self, x):
+    #     c = self.out_channels
+    #     t, h, w = [s // self.patch_size[i] for i, s in enumerate(x.size())]
+    #     pt, ph, pw = self.patch_size
 
-        x = x.reshape(shape=(x.shape[0], t, h, w, pt, ph, pw, c))
-        x = rearrange(x, "n t h w r p q c -> n c t r h p w q")
-        imgs = x.reshape(shape=(x.shape[0], c, t * pt, h * ph, w * pw))
-        return imgs
+    #     x = x.reshape(shape=(x.shape[0], t, h, w, pt, ph, pw, c))
+    #     x = rearrange(x, "n t h w r p q c -> n c t r h p w q")
+    #     imgs = x.reshape(shape=(x.shape[0], c, t * pt, h * ph, w * pw))
+    #     return imgs
 
     def unpatchify_pixart(self, x):
         """
@@ -513,6 +520,12 @@ class STDiT2(PreTrainedModel):
         nn.init.normal_(self.t_block[1].weight, std=0.02)
         # nn.init.normal_(self.t_block_temp[1].weight, std=0.02)
 
+        # Initialize num_frames embedding MLP:
+        nn.init.normal_(self.t_embedder2.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder2.mlp[2].weight, std=0.02)
+        nn.init.normal_(self.t_block2[1].weight, std=0.02)
+        # nn.init.normal_(self.t_block_temp[1].weight, std=0.02)
+
         # Initialize caption embedding MLP:
         nn.init.normal_(self.y_embedder.y_proj.fc1.weight, std=0.02)
         nn.init.normal_(self.y_embedder.y_proj.fc2.weight, std=0.02)
@@ -535,7 +548,7 @@ def STDiT2_XL_2(from_pretrained=None, **kwargs):
             config = STDiT2Config(
                 depth=28,
                 hidden_size=1152,
-                patch_size=(1, 2, 2),
+                patch_size=(2, 2),
                 num_heads=16, **kwargs
             )
             model = STDiT2(config)
@@ -549,7 +562,7 @@ def STDiT2_XL_2(from_pretrained=None, **kwargs):
         config = STDiT2Config(
             depth=28,
             hidden_size=1152,
-            patch_size=(1, 2, 2),
+            patch_size=(2, 2),
             num_heads=16, **kwargs
         )
         model = STDiT2(config)
