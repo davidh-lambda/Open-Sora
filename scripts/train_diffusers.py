@@ -38,8 +38,7 @@ from opensora.utils.misc import all_reduce_mean, format_numel_str, get_model_num
 from opensora.utils.train_utils import MaskGenerator, update_ema
 
 import torch
-from diffusers import PixArtAlphaPipeline, ConsistencyDecoderVAE, AutoencoderKL
-from diffusers.models import PixArtTransformer2DModel
+from diffusers import Transformer2DModel, PixArtSigmaPipeline
 
 
 class HuggingFaceColossalAIWrapper:
@@ -300,11 +299,16 @@ def write_sample(pipe, transformer, scheduler, cfg, epoch, exp_dir, global_step,
                 text_embeddings = torch.cat(text_embeddings, dim=1)#.repeat(tsize, 1, 1)
                 batch_z = z[i:i + eval_batch_size]
 
+                batch_size = len(batch_z)
+
                 added_cond_kwargs = {}
                 resolution = torch.tensor([*image_size]).repeat(eval_batch_size).reshape([-1]).to(device, dtype)
                 aspect_ratio = torch.tensor([image_size[0]/image_size[1]]).repeat(eval_batch_size).to(device, dtype)
                 added_cond_kwargs["resolution"] = resolution
                 added_cond_kwargs["aspect_ratio"] = aspect_ratio
+
+                # TODO:
+                # - why eval_batch_size and not batch_size?
 
                 model = lambda x, t, y=text_embeddings, **kwargs: transformer(x, y, timestep=t, return_dict=False, added_cond_kwargs=added_cond_kwargs, **kwargs)[0]
                 model.forward = model
@@ -322,7 +326,7 @@ def write_sample(pipe, transformer, scheduler, cfg, epoch, exp_dir, global_step,
                 # - "enhance" each frame using rest of image diffusions
                 # for t in range(num_timesteps):
                 #     # Compute model output (predicted noise)
-                #     model_output = pipe.transformer(batch_z, text_embeddings, timestep=torch.tensor([t], device=device).repeat(eval_batch_size), added_cond_kwargs=added_cond_kwargs).sample
+                #     model_output = pipe.transformer(batch_z, text_embeddings, timestep=torch.tensor([t], device=device).repeat(batch_size), added_cond_kwargs=added_cond_kwargs).sample
 
                 #     # You can add your custom logic here to adapt each intermediate step
                 #     # For example, you could apply a custom transformation to the model output
@@ -333,8 +337,10 @@ def write_sample(pipe, transformer, scheduler, cfg, epoch, exp_dir, global_step,
 
                 images_frame_1 = pipe.vae.decode(batch_z.to(dtype)).sample
                 images_frame_2 = pipe.vae.decode(batch_samples.to(dtype)).sample
-                images = torch.stack([images_frame_1, images_frame_2], dim=2).squeeze()
-                samples.append(images.to("cpu", torch.float))
+                #images = torch.stack([images_frame_1, images_frame_2], dim=2).squeeze().to("cpu", torch.float")
+                images = np.array(pipe(prompt='dog', timesteps=[400], num_inference_steps=1, guidance_scale=1).images[0])
+                images = np.stack([images]*2, 2)
+                samples.append(images)
 
 
             # 4.4. save samples
@@ -507,7 +513,18 @@ def main():
     # 4.1. build model
 
     # You can replace the checkpoint id with "PixArt-alpha/PixArt-XL-2-512x512" too.
-    pipe = PixArtAlphaPipeline.from_pretrained("PixArt-alpha/PixArt-XL-2-1024-MS", torch_dtype=torch.bfloat16, use_safetensors=True)
+    transformer_orig = Transformer2DModel.from_pretrained(
+        "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS", 
+        subfolder='transformer', 
+        torch_dtype=dtype,
+        use_safetensors=True,
+    )
+    pipe = PixArtSigmaPipeline.from_pretrained(
+        "PixArt-alpha/pixart_sigma_sdxlvae_T5_diffusers",
+        transformer=transformer_orig,
+        torch_dtype=dtype,
+        use_safetensors=True,
+)
     pipe.to(device)
     pipe.transformer.eval()
 
@@ -520,7 +537,7 @@ def main():
     #     caption_channels=pipe.text_encoder.config.d_model,
     #     model_max_length=pipe.tokenizer.model_max_length
     # )
-    transformer = PixArtTransformer2DModel.from_config(pipe.transformer.config)
+    transformer = Transformer2DModel.from_config(pipe.transformer.config)
     transformer.to(device)
     transformer.train()
 
@@ -716,6 +733,7 @@ def main():
                 loss = 0
                 frames_pos = []
                 frames_neg = []
+                assert len(x) == 2
                 for frame in x:
                     noise_frame = torch.randn(shape, device=device, dtype=dtype)
                     for frames in [frames_pos, frames_neg]:
