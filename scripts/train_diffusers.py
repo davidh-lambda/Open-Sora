@@ -738,10 +738,11 @@ def main():
                 frame_pos_2 = None
                 frame_neg_1 = None
                 frame_neg_2 = None
+                pos_and_neg = True
                 for frame in z:
                     clean_images = frame * pipe.vae_scale_factor
                     noise_frame = torch.randn(shape, device=device, dtype=dtype)
-                    for losstype in ["pos", "neg"]:
+                    for losstype in (["pos", "neg"] if pos_and_neg else ["pos"]):
                         full_noise_images = (noise_frame + noise_vid)/math.sqrt(2) if losstype == "pos" else noise_vid
                         noisy_images = scheduler.q_sample(clean_images, t_img, noise=full_noise_images).to(device, dtype)
                         with torch.no_grad():
@@ -757,6 +758,7 @@ def main():
                     # compute loss
                     if frame_pos_1 is not None and frame_pos_2 is not None:
                         loss +=   scheduler.training_losses(t2v_model, frame_pos_1, t_vid, model_kwargs, noise=frame_pos_2)["loss"].mean()
+                    if frame_neg_1 is not None and frame_neg_2 is not None:
                         loss += (-scheduler.training_losses(t2v_model, frame_neg_1, t_vid, model_kwargs, noise=frame_neg_2)["loss"].mean()).abs()
 
                 # Diffusion using pip-diffusers
