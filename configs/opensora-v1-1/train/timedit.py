@@ -8,7 +8,7 @@ dataset = dict(
     transform_name="resize_crop",
 )
 bucket_config = {  # 13s/it
-    "360p": {4: (1.0, 4)},
+    "360p": {4: (1.0, 12)},
 
 
     #"360p": {1: (1.0, 128), 16: (1.0, 8), 32: (1.0, 4)},
@@ -99,7 +99,7 @@ ckpt_every = 500
 load = None
 
 batch_size = None
-lr = 1e-4
+lr = 1e-5
 grad_clip = 1.0
 
 eval_prompts = [
