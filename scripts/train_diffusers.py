@@ -668,7 +668,8 @@ def main():
 
                     # choose time frames to optimize
                     num_frames = 2
-                    x = x[:, :, :num_frames, :, :]
+                    start_index = random.randint(0, x.shape[2] - num_frames)
+                    x = x[:, :, start_index:start_index + num_frames, :, :]
                     tsize = x.shape[2]
                     x = rearrange(x, "b c t w h -> (b t) c w h").to(device, dtype)
 
@@ -703,11 +704,7 @@ def main():
                 # re-arrange and extract frames
                 # z = rearrange(z, "(b t) c w h -> b c t w h ", t=tsize)
                 z = rearrange(z, "(b t) c w h -> t b c w h ", t=tsize)
-                num_frames = 4
-                z = z[:2] # TODO: let's start training with only two frames
                 z = z.to(device, dtype)
-                # z = [zi.squeeze() for zi in z.split(1, dim=2)]
-                # z = [z[0], z[0]] # TODO: FOR DEBUGGING
                 shape = z[0].shape
 
                 # 6.1 Prepare micro-conditions. (from https://github.com/huggingface/diffusers/blob/d457beed92e768af6090238962a93c4cf4792e8f/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py#L882)
