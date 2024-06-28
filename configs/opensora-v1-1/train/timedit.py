@@ -121,8 +121,8 @@ eval_prompts = [
         # "A young man walks alone by the seaside.",            
 ]
 
-eval_image_size = (512, 512)
-eval_num_frames = 1
+eval_image_size = (360, 600)
+eval_num_frames = 4
 eval_fps = 8
 eval_batch_size = 2
 eval_steps = ckpt_every
