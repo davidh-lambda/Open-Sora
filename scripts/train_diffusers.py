@@ -566,8 +566,8 @@ def main():
     if cfg.load is not None:
         lr_scheduler = None
     else:
-        #lr_scheduler = ConstantWarmupLR(optimizer, factor=1, warmup_steps=1500, last_epoch=-1)
-        lr_scheduler = OneCycleScheduler(optimizer, min_lr=1e-7, max_lr=1e-4, final_lr=1e-5, warmup_steps=1500, cooldown_steps=2500, anneal_strategy='cos')
+        lr_scheduler = ConstantWarmupLR(optimizer, factor=1, warmup_steps=500, last_epoch=-1)
+        #lr_scheduler = OneCycleScheduler(optimizer, min_lr=1e-7, max_lr=1e-4, final_lr=1e-5, warmup_steps=1500, cooldown_steps=2500, anneal_strategy='cos')
     
     # 4.6. prepare for training
     if cfg.grad_checkpoint:
