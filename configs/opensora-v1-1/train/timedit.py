@@ -103,22 +103,10 @@ lr = 1e-5
 grad_clip = 1.0
 
 eval_prompts = [
-        # "walter white and jesse pinkman from breaking bad standing in front of their van in the new mexican desert.",
-        # "Marty McFly standing in front of the DeLorean, while Doc Brown explains him the two time lines.",
         "People eating ice cream and drinkin espresso outside of a cafe on a narrow street in Rome. There are stores along the street selling a variety of wares. One shop sells fruits. Another shop sells vegetables. A third shop sells christmas ornaments. Many people walk along the street.",
-        # "An astronaut walking on the moon, with the effects of gravity making the walk appear very bouncy.",
-        # "A person walks down a garden path. The path is surrounded by gorgeous and colorful flowers, lush bushes, and grand trees. Butterflies and bees zip around the scene in the background. The person is walking directly towards the camera.",
-        # "Forrest Gump - A man sits on a park bench with a box of chocolates and tells his story to a person also sitting on the bench.",
-        # "A majestic lion walking confidently through the savannah, its mane flowing in the wind with each step. The golden sunset casts a warm glow on the scene, highlighting the lion's powerful stride. Tall grasses sway gently around it as it moves, and distant acacia trees are silhouetted against the horizon.",
-        # "A cute-looking Jack Nicholson breaking through the door with a axe and shouting ”Here's Johnny!”.",
-        # "A ninja wearing a red outfit jumps from one roof of a building to a second building's roof. The full moon is in sight directly behind the ninja.",
-        # "A cowgirl rides a horse across a wide grass field.",
-        # "A rock band performs a high energy song on a stage in front of a huge crowd. The camera views the stage from the audience, where part of the view is obstructed by the backs of people's heads. The band members are styled similar to the Kiss rock band.",
-        # "A newly married couple do their first dance at a wedding. Both partners are wearing white dresses, and are slow dancing in the center of a beautifully decorated wedding hall.",
-        # "Two knights battle each other on foot with swords and shields. The knights both swing swords at each other and the swords meet in the middle as both knights battle for victory.",
-        # "Frozen - Elsa building her ice castle while singing \"Let It Go\" with snow swirling around her.",
-        # "A fat rabbit wearing a purple robe walking through a fantasy landscape.",
-        # "A young man walks alone by the seaside.",            
+        "a serene mountainous landscape under a cloudy sky. A small village with traditional European architecture is nestled in a valley, surrounded by lush green fields. The buildings have pitched roofs and are predominantly white, with some featuring darker roof tiles. The village is situated at the base of steep, forested mountains that rise dramatically from the valley floor. The mountains are partially shrouded in low-lying clouds or mist, adding a sense of mystery to the scene. The overall style of the scene is realistic with a focus on natural scenery, capturing the tranquility and beauty of a rural mountainous region.",
+        "an aerial view of a serene coastal scene. Dominating the foreground is a large body of water, its surface a deep blue-green, reflecting the clear sky above. The water is calm, with only a few small waves visible, suggesting a peaceful day. In the middle of the water, there are two boats. One is closer to the viewer, appearing larger and more detailed. It's a white boat, possibly a yacht or a motorboat, with a sleek design. The other boat is smaller and further away, its details less distinct due to the distance. The coastline is rugged and rocky, with patches of greenery interspersed, adding a touch of life to the otherwise stark landscape. The rocks are a mix of brown and gray, contrasting with the vibrant blue of the water. The sky above is a light blue, with no clouds visible, indicating a sunny day.",
+        "a stunning scene showing an iconic european castle on a hill. The ancient stone structures rises against the backdrop of a lush green forest. The camera circles the site, ascending gradually, revealing the intricate layout of the ruins. The shot highlights the contrast between the historical architecture and the surrounding natural beauty, moving smoothly and steadily to provide a comprehensive, panoramic view of the castle from every direction."
 ]
 
 eval_image_size = (360, 600)
@@ -130,4 +118,4 @@ eval_steps = ckpt_every
 wandb_project_name = "qss_timedit"
 wandb_project_entity = "lambdalabs"
 
-exp_id = "0_test"
+exp_id = "1_timedit"
