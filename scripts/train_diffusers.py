@@ -39,7 +39,7 @@ from opensora.utils.train_utils import MaskGenerator, update_ema
 
 import torch
 from diffusers import Transformer2DModel, PixArtSigmaPipeline
-from diffusion import IDDPM
+from diffusion import IDDPM, DPMS
 
 
 class HuggingFaceColossalAIWrapper:
@@ -278,73 +278,271 @@ def write_sample(pipe, transformer, scheduler, cfg, epoch, exp_dir, global_step,
             if z_log is None:
                 rng = np.random.default_rng(seed=42)
                 #z_log = rng.normal(size=(len(prompts), vae.out_channels, *latent_size))
-                z_log = rng.normal(size=(len(prompts), 4, 44, 80))
+                z_log = rng.normal(size=(len(prompts), 4, 44, 80)) # TODO
             z = torch.tensor(z_log, device=device, dtype=float).to(dtype=dtype)
             set_seed_custom(42)
 
             samples = []
             num_timesteps = pipe.scheduler.num_train_timesteps
 
+
+            # null caption
+            null_caption_token = pipe.tokenizer("", max_length=pipe.tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt").to(device)
+            null_caption_embs = pipe.text_encoder(null_caption_token.input_ids, attention_mask=null_caption_token.attention_mask)[0]
+            null_y = null_caption_embs.repeat(min(eval_batch_size, len(prompts)), 1, 1)[:, None]
+
+
             for i in range(0, len(prompts), eval_batch_size):
-                batch_prompts = prompts[i:i + eval_batch_size]
-                #text_embeddings = pipe.encode_prompt(batch_prompts)[0]
-                input_ids = pipe.tokenizer(batch_prompts, return_tensors="pt", truncation=False, padding=True).input_ids.to("cuda")
-                text_embeddings = []
-                for i in range(0, input_ids.shape[-1], pipe.tokenizer.model_max_length):
-                    text_embeddings.append(
-                        pipe.text_encoder(
-                            input_ids[:, i: i + pipe.tokenizer.model_max_length]
-                        )[0]
-                    )
-                input_ids = None
-                text_embeddings = torch.cat(text_embeddings, dim=1)#.repeat(tsize, 1, 1)
                 batch_z = z[i:i + eval_batch_size]
+                shape = batch_z.shape
+                batch_prompts = prompts[i:i + eval_batch_size]
+                # batch = { # TODO
+                #     "width": torch.tensor([z.shape[2] * pipe.vae_scale_factor] * len(batch_z)),
+                #     "height": torch.tensor([z.shape[3] * pipe.vae_scale_factor] * len(batch_z)),
+                #     "ar": torch.tensor([z.shape[2] / z.shape[3]] * len(batch_z)),
+                # }
 
+                # # t5 features
+                # txt_tokens = pipe.tokenizer(
+                #     batch_prompts, max_length=pipe.tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+                # ).to(device)
+                # y_embed = pipe.text_encoder(
+                #     txt_tokens.input_ids, attention_mask=txt_tokens.attention_mask)[0][:, None]
+                # y_mask = txt_tokens.attention_mask[:, None, None].to(torch.bool)
+
+
+
+                # 6.1 Prepare micro-conditions. (from https://github.com/huggingface/diffusers/blob/d457beed92e768af6090238962a93c4cf4792e8f/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py#L882)
+                # added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
+                # if pipe.transformer.config.sample_size == 128:
+                #     resolution = torch.stack([batch["height"],batch["width"]], 1)#.repeat(tsize, 1, 1).reshape([-1])
+                #     aspect_ratio = batch["ar"]#.repeat(tsize)
+                #     added_cond_kwargs["resolution"] = resolution.to(dtype=dtype, device=device)
+                #     added_cond_kwargs["aspect_ratio"] = aspect_ratio.to(dtype=dtype, device=device)
+
+                # # helpers
+                # model_kwargs_diffusers = dict(encoder_hidden_states=y_embed, encoder_attention_mask=y_mask, added_cond_kwargs=added_cond_kwargs)
+                # model_kwargs = dict(encoder_attention_mask=y_mask, added_cond_kwargs=added_cond_kwargs)
+                # model_converter = lambda model: lambda z, timestep, cond=y_embed, **kwargs: model(z, cond, timestep=timestep, return_dict=False, **kwargs)[0]
+                # t2i_model = model_converter(pipe.transformer)
+                # t2v_model = model_converter(transformer)
+
+
+                # scheduler_t2i = DPMS(t2i_model, condition=y_embed, uncondition=null_y, cfg_scale=4.0, model_kwargs=model_kwargs)
+                # scheduler_t2v = DPMS(t2v_model, condition=y_embed, uncondition=null_y, cfg_scale=4.0, model_kwargs=model_kwargs)
+
+
+                # global noise (image seed)
+                noise_vid = torch.randn(shape, device=device, dtype=dtype)
+
+                # image de-noise (animation)
+                # 1. perform one step of image diffusion
+                # 2. perform video diffusion on the first step (as many frames as needed)
+                # 3. complete image diffusion process of all frames / "enhance" each frame using rest of image diffusion
+                num_frames = 4
+
+
+                # call variables
+                width = 400
+                height = 600
+                num_inference_steps = 20
+                guidance_scale = 4.0
+                timesteps = None
+                negative_prompt = ""
+                num_images_per_prompt = 1
+                clean_caption = True
+                max_sequence_length = 300
                 batch_size = len(batch_z)
+                prompt = batch_prompts
+                generator = None
+                eta = 0.0
+                prompt_embeds = None
+                sigmas = None
+                prompt_attention_mask = None
+                negative_prompt_embeds = None
+                negative_prompt_attention_mask = None
+                use_resolution_binning = True
+                callback_steps = 1
 
-                added_cond_kwargs = {}
-                resolution = torch.tensor([*image_size]).repeat(eval_batch_size).reshape([-1]).to(device, dtype)
-                aspect_ratio = torch.tensor([image_size[0]/image_size[1]]).repeat(eval_batch_size).to(device, dtype)
-                added_cond_kwargs["resolution"] = resolution
-                added_cond_kwargs["aspect_ratio"] = aspect_ratio
+                # Code below copied & adapted from: https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_sigma.py
+                from diffusers.pipelines.pixart_alpha.pipeline_pixart_sigma import retrieve_timesteps, ASPECT_RATIO_2048_BIN, ASPECT_RATIO_1024_BIN, ASPECT_RATIO_512_BIN, ASPECT_RATIO_256_BIN
+                do_classifier_free_guidance = guidance_scale > 1.0
+                latents = noise_vid
 
-                # TODO:
-                # - why eval_batch_size and not batch_size?
+                # 1. Check inputs. Raise error if not correct
+                height = height or pipe.transformer.config.sample_size * pipe.vae_scale_factor
+                width = width or pipe.transformer.config.sample_size * pipe.vae_scale_factor
+                if use_resolution_binning:
+                    if pipe.transformer.config.sample_size == 256:
+                        aspect_ratio_bin = ASPECT_RATIO_2048_BIN
+                    elif pipe.transformer.config.sample_size == 128:
+                        aspect_ratio_bin = ASPECT_RATIO_1024_BIN
+                    elif pipe.transformer.config.sample_size == 64:
+                        aspect_ratio_bin = ASPECT_RATIO_512_BIN
+                    elif pipe.transformer.config.sample_size == 32:
+                        aspect_ratio_bin = ASPECT_RATIO_256_BIN
+                    else:
+                        raise ValueError("Invalid sample size")
+                    orig_height, orig_width = height, width
+                    height, width = pipe.image_processor.classify_height_width_bin(height, width, ratios=aspect_ratio_bin)
 
-                model = lambda z, t, y=text_embeddings, **kwargs: transformer(z, y, timestep=t, return_dict=False, added_cond_kwargs=added_cond_kwargs, **kwargs)[0]
-                model.forward = model
-                batch_samples = scheduler.sample(
-                    model,
-                    text_embeddings,
-                    z=batch_z,
-                    prompts=batch_prompts,
-                    device=device,
+                # 2. Default height and width to transformer
+                if prompt is not None and isinstance(prompt, str):
+                    batch_size = 1
+                elif prompt is not None and isinstance(prompt, list):
+                    batch_size = len(prompt)
+                else:
+                    batch_size = prompt_embeds.shape[0]
+
+
+                pipe.check_inputs(
+                    prompt,
+                    height,
+                    width,
+                    negative_prompt,
+                    callback_steps,
+                    prompt_embeds,
+                    negative_prompt_embeds,
+                    prompt_attention_mask,
+                    negative_prompt_attention_mask,
                 )
 
-                # TODO:
-                # - perform one step of image diffusion
-                # - perform video diffusion on the first step (as many frames as needed)
-                # - "enhance" each frame using rest of image diffusions
-                # for t in range(num_timesteps):
-                #     # Compute model output (predicted noise)
-                #     model_output = pipe.transformer(batch_z, y_embed, timestep=torch.tensor([t], device=device).repeat(batch_size), added_cond_kwargs=added_cond_kwargs).sample
+                # 3. Encode input prompt
+                (
+                    prompt_embeds,
+                    prompt_attention_mask,
+                    negative_prompt_embeds,
+                    negative_prompt_attention_mask,
+                ) = pipe.encode_prompt(
+                    prompt,
+                    do_classifier_free_guidance,
+                    negative_prompt=negative_prompt,
+                    num_images_per_prompt=num_images_per_prompt,
+                    device=device,
+                    prompt_embeds=prompt_embeds,
+                    negative_prompt_embeds=negative_prompt_embeds,
+                    prompt_attention_mask=prompt_attention_mask,
+                    negative_prompt_attention_mask=negative_prompt_attention_mask,
+                    clean_caption=clean_caption,
+                    max_sequence_length=max_sequence_length,
+                )
+                if do_classifier_free_guidance:
+                    prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
+                    prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
 
-                #     # You can add your custom logic here to adapt each intermediate step
-                #     # For example, you could apply a custom transformation to the model output
-                #     #model_output = custom_transformation(model_output, t)
-                    
-                #     # Perform one step of the reverse diffusion process
-                #     image = pipe.scheduler.step(model_output, t, image).prev_sample
+                # 4. Prepare timesteps
+                timesteps, num_inference_steps = retrieve_timesteps(
+                    pipe.scheduler, num_inference_steps, device, timesteps, sigmas
+                )
 
-                images_frame_1 = pipe.vae.decode(batch_z.to(dtype)).sample
-                images_frame_2 = pipe.vae.decode(batch_samples.to(dtype)).sample
+                # 5. Prepare latents.
+                latent_channels = pipe.transformer.config.in_channels
+                latents = pipe.prepare_latents(
+                    batch_size * num_images_per_prompt,
+                    latent_channels,
+                    height,
+                    width,
+                    prompt_embeds.dtype,
+                    device,
+                    generator,
+                    latents,
+                )
+
+                # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
+                extra_step_kwargs = pipe.prepare_extra_step_kwargs(generator, eta)
+
+                # 6.1 Prepare micro-conditions.
+                added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
+
+                def denoise(i, t, latents, model):
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+
+                    current_timestep = t
+                    if not torch.is_tensor(current_timestep):
+                        is_mps = latent_model_input.device.type == "mps"
+                        if isinstance(current_timestep, float):
+                            dtype = torch.float32 if is_mps else torch.float64
+                        else:
+                            dtype = torch.int32 if is_mps else torch.int64
+                        current_timestep = torch.tensor([current_timestep], dtype=dtype, device=latent_model_input.device)
+                    elif len(current_timestep.shape) == 0:
+                        current_timestep = current_timestep[None].to(latent_model_input.device)
+                    # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+                    current_timestep = current_timestep.expand(latent_model_input.shape[0])
+
+                    # predict noise model_output
+                    noise_pred = model(
+                        latent_model_input,
+                        encoder_hidden_states=prompt_embeds,
+                        encoder_attention_mask=prompt_attention_mask,
+                        timestep=current_timestep,
+                        added_cond_kwargs=added_cond_kwargs,
+                        return_dict=False,
+                    )[0]
+
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                    # learned sigma
+                    if model.config.out_channels // 2 == latent_channels:
+                        noise_pred = noise_pred.chunk(2, dim=1)[0]
+                    else:
+                        noise_pred = noise_pred
+
+                    # compute previous image: x_t -> x_t-1
+                    latents = pipe.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                    return latents
+
+
+                # 7. Denoising loop
+                for i, t in enumerate(timesteps):
+                    latents = denoise(i, t, latents, pipe.transformer)
+
+
+                # return output
+                image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
+                if use_resolution_binning:
+                    image = pipe.image_processor.resize_and_crop_tensor(image, orig_width, orig_height)
+                image = pipe.image_processor.postprocess(image, output_type="pil")
+
+                # Offload all models
+                pipe.maybe_free_model_hooks()
+
+
+                # -----------------------------
+
+                #initial_frames = scheduler_t2i.sample(
+                #    noise_vid,
+                #    steps=sample_steps,
+                #    order=2,
+                #    skip_type="time_uniform",
+                #    method="multistep",
+                #)
+                # initial_frames_out = pipe.vae.decode(initial_frames.to(dtype)).sample
+                # initial_frames_out[0].save('initial_frame.png')
+
+                # current_frame = initial_frames
+                # for frame in range(num_frames):
+                #     current_frame = scheduler.sample(
+                #         current_frame,
+                #         steps=sample_steps,
+                #         order=2,
+                #         skip_type="time_uniform",
+                #         method="multistep",
+                #     )
+
+                # compute each frame back to image space
+                # images_frame_1 = pipe.vae.decode(latents.to(dtype)).sample
+                # images_frame_2 = pipe.vae.decode(latents[1].to(dtype)).sample
                 #images = torch.stack([images_frame_1, images_frame_2], dim=2).squeeze().to("cpu", torch.float")
                 #images = pipe(prompt='dog').images[0]
-                #images.save('yiyi_test_4_out_1step.png')
-                images = np.array(pipe(prompt='dog').images[0])
-
-
-                images = np.stack([images]*2, 0)
+                images_frame_1.save('yiyi_test_4_out_1step.png')
+                # images = np.array(pipe(prompt='dog').images[0])
+                # images = np.stack([images]*2, 0)
+                images = np.stack([images_frame_1.cpu().numpy(), images_frame_2.cpu().numpy()])
                 samples.append(images)
 
 
@@ -550,7 +748,6 @@ def main():
 
 
     scheduler = IDDPM(str(20), learn_sigma=True, pred_sigma=True, snr=False)
-    scheduler_inference = build_module(cfg.scheduler_inference, SCHEDULERS)
 
     # 4.5. setup optimizer
     optimizer = HybridAdam(
@@ -633,8 +830,8 @@ def main():
     # log prompts for pre-training ckpt
     first_global_step = start_epoch * num_steps_per_epoch + start_step
 
-    #write_sample(pipe, transformer, scheduler_inference, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
-    #log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
+    write_sample(pipe, transformer, None, cfg, start_epoch, exp_dir, first_global_step, dtype, device)
+    log_sample(coordinator.is_master(), cfg, start_epoch, exp_dir, first_global_step)
     
 
     # 6.2. training loop
@@ -697,16 +894,12 @@ def main():
 
                 added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
 
-                # Video info
-                model_args = {"y": y_embed}
-                for k, v in batch.items():
-                    model_args[k] = v.to(device, dtype)
-
                 # re-arrange and extract frames
-                z = rearrange(z, "(b t) c w h -> b c t w h ", t=tsize)
+                # z = rearrange(z, "(b t) c w h -> b c t w h ", t=tsize)
+                z = rearrange(z, "(b t) c w h -> t b c w h ", t=tsize)
                 z = z.to(device, dtype)
-                z = [zi.squeeze() for zi in z.split(1, dim=2)]
-                z = [z[0], z[0]] # TODO: FOR DEBUGGING
+                # z = [zi.squeeze() for zi in z.split(1, dim=2)]
+                # z = [z[0], z[0]] # TODO: FOR DEBUGGING
                 shape = z[0].shape
 
                 # 6.1 Prepare micro-conditions. (from https://github.com/huggingface/diffusers/blob/d457beed92e768af6090238962a93c4cf4792e8f/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py#L882)
@@ -730,25 +923,35 @@ def main():
                 # global noise (image seed)
                 noise_vid = torch.randn(shape, device=device, dtype=dtype)
 
-                pipe.transformer.train()
+                # pipe.transformer.train()
 
                 # image noise (animation)
                 loss = 0
-                frames_pos = []
-                frames_neg = []
-                assert len(z) == 2 # TODO: use more frames
+                # frames_pos = []
+                # frames_neg = []
+                frame_pos_1 = None
+                frame_pos_2 = None
+                frame_neg_1 = None
+                frame_neg_2 = None
                 for frame in z:
                     clean_images = frame * pipe.vae_scale_factor
                     noise_frame = torch.randn(shape, device=device, dtype=dtype)
-                    for frames in [frames_pos, frames_neg]:
-                        full_noise_images = (noise_frame + noise_vid)/math.sqrt(2) if frames == frames_pos else noise_vid
+                    for losstype in ["pos", "neg"]:
+                        full_noise_images = (noise_frame + noise_vid)/math.sqrt(2) if losstype == "pos" else noise_vid
                         noisy_images = scheduler.q_sample(clean_images, t_img, noise=full_noise_images).to(device, dtype)
                         frame_pred = scheduler.p_sample(t2i_model, noisy_images, t_img, model_kwargs = model_kwargs)["sample"]
-                        frames.append(frame_pred.to(dtype))
+                        frame_pred = frame_pred.to(dtype)
+                        if losstype == "pos":
+                            frame_pos_1 = frame_pos_2
+                            frame_pos_2 = frame_pred
+                        else:
+                            frame_neg_1 = frame_neg_2
+                            frame_neg_2 = frame_pred
 
-                # compute loss
-                loss += scheduler.training_losses(t2v_model, frames_pos[0], t_vid, model_kwargs, noise=frames_pos[1])["loss"].mean()
-                loss += (-scheduler.training_losses(t2v_model, frames_neg[0], t_vid, model_kwargs, noise=frames_neg[1])["loss"].mean()).abs()
+                    # compute loss
+                    if frame_pos_1 is not None and frame_pos_2 is not None:
+                        loss +=   scheduler.training_losses(t2v_model, frame_pos_1, t_vid, model_kwargs, noise=frame_pos_2)["loss"].mean()
+                        loss += (-scheduler.training_losses(t2v_model, frame_neg_1, t_vid, model_kwargs, noise=frame_neg_2)["loss"].mean()).abs()
 
                 # Diffusion using pip-diffusers
                 #t = torch.randint(0, pipe.scheduler.num_train_timesteps, (z.shape[0],), device=device)
@@ -826,7 +1029,7 @@ def main():
 
                     # log prompts for each checkpoints
                 if global_step % cfg.eval_steps == 0:
-                    write_sample(pipe, transformer, scheduler_inference, cfg, epoch, exp_dir, global_step, dtype, device)
+                    write_sample(pipe, transformer, None, cfg, epoch, exp_dir, global_step, dtype, device)
                     log_sample(coordinator.is_master(), cfg, epoch, exp_dir, global_step)
 
         # the continue epochs are not resumed, so we need to reset the sampler start index and start step
