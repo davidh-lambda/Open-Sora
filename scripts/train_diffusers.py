@@ -304,7 +304,7 @@ def write_sample(pipe, pipe2, cfg, epoch, exp_dir, global_step, dtype, device):
                 # 1. perform one step of image diffusion
                 # 2. perform video diffusion on the first step (as many frames as needed)
                 # 3. complete image diffusion process of all frames / "enhance" each frame using rest of image diffusion
-                num_frames = 4
+                num_frames = 2
 
                 frame_latents = []
                 kwargs = {"height": 360, "width": 600}
@@ -566,7 +566,8 @@ def main():
     if cfg.load is not None:
         lr_scheduler = None
     else:
-        lr_scheduler = ConstantWarmupLR(optimizer, factor=1, warmup_steps=500, last_epoch=-1)
+        #lr_scheduler = ConstantWarmupLR(optimizer, factor=1, warmup_steps=500, last_epoch=-1)
+        lr_scheduler = ConstantWarmupLR(optimizer, factor=1, warmup_steps=1500, last_epoch=-1)
         #lr_scheduler = OneCycleScheduler(optimizer, min_lr=1e-7, max_lr=1e-4, final_lr=1e-5, warmup_steps=1500, cooldown_steps=2500, anneal_strategy='cos')
     
     # 4.6. prepare for training
@@ -724,6 +725,7 @@ def main():
                 # diffusion timesteps
                 t_vid = torch.randint(0, scheduler.num_timesteps, (shape[0],), device=device)
                 t_img = torch.tensor(scheduler.num_timesteps - 1).repeat(shape[0]).to(device)
+                #t_img = torch.randint(1, scheduler.num_timesteps, (shape[0],), device=device)
 
                 # global noise (image seed)
                 noise_vid = torch.randn(shape, device=device, dtype=dtype)
@@ -738,16 +740,20 @@ def main():
                 frame_pos_2 = None
                 frame_neg_1 = None
                 frame_neg_2 = None
+                last_clean_images = None
+                clean_images = None
                 pos_and_neg = True
                 for frame in z:
+                    #last_clean_images = clean_images
                     clean_images = frame * pipe.vae_scale_factor
                     noise_frame = torch.randn(shape, device=device, dtype=dtype)
                     for losstype in (["pos", "neg"] if pos_and_neg else ["pos"]):
-                        full_noise_images = (noise_frame + noise_vid)/math.sqrt(2) if losstype == "pos" else noise_vid
+                        #full_noise_images = (noise_frame + noise_vid)/math.sqrt(2) if losstype == "pos" else noise_vid
+                        full_noise_images = noise_frame if losstype == "pos" else noise_vid
                         noisy_images = scheduler.q_sample(clean_images, t_img, noise=full_noise_images).to(device, dtype)
+                        #frame_pred = scheduler.q_sample(clean_images, t_img - 1, noise=full_noise_images).to(device, dtype)
                         with torch.no_grad():
-                            frame_pred = scheduler.p_sample(t2i_model, noisy_images, t_img, model_kwargs = model_kwargs)["sample"]
-                        frame_pred = frame_pred.to(dtype)
+                            frame_pred = scheduler.p_sample(t2i_model, noisy_images, t_img, model_kwargs = model_kwargs)["sample"].to(dtype)
                         if losstype == "pos":
                             frame_pos_1 = frame_pos_2
                             frame_pos_2 = frame_pred
@@ -755,11 +761,20 @@ def main():
                             frame_neg_1 = frame_neg_2
                             frame_neg_2 = frame_pred
 
+                    # if frame_pos_1 is not None and frame_pos_2 is not None:
+                    #     # TODO: t_img or t_img-1 ?
+                    #     t_vid = torch.randint(0, scheduler.num_timesteps, (shape[0],), device=device)
+                    #     noisy_video = scheduler.q_sample(frame_pos_1, t_vid, noise=frame_pos_2).to(device, dtype)
+                    #     frame_pred_vid = scheduler.p_sample(t2v_model, noisy_video, t_vid, model_kwargs = model_kwargs)["sample"].to(dtype)
+                    #     alpha_vid = ((1.0 * t_vid) / (1.0 * scheduler.num_timesteps)).reshape(-1, 1, 1, 1).to(device, dtype)
+                    #     frame_mix = last_clean_images * (1-alpha_vid) + (alpha_vid) * clean_images
+                    #     loss +=   scheduler.training_losses(t2i_model, frame_mix, t_img - 1, model_kwargs, noise=frame_pred_vid)["loss"].mean()
+
                     # compute loss
                     if frame_pos_1 is not None and frame_pos_2 is not None:
-                        loss +=   scheduler.training_losses(t2v_model, frame_pos_1, t_vid, model_kwargs, noise=frame_pos_2)["loss"].mean()
+                        loss +=   scheduler.training_losses(t2v_model, frame_pos_2, t_vid, model_kwargs, noise=frame_pos_1)["loss"].mean()
                     if frame_neg_1 is not None and frame_neg_2 is not None:
-                        loss += (-scheduler.training_losses(t2v_model, frame_neg_1, t_vid, model_kwargs, noise=frame_neg_2)["loss"].mean()).abs()
+                        loss += (-scheduler.training_losses(t2v_model, frame_neg_2, t_vid, model_kwargs, noise=frame_neg_1)["loss"].mean()).abs()
 
                 # Diffusion using pip-diffusers
                 #t = torch.randint(0, pipe.scheduler.num_train_timesteps, (z.shape[0],), device=device)
