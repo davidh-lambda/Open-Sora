@@ -234,6 +234,8 @@ def main():
         if not cfg.get("start_from_scratch", False):
             start_epoch, start_step = ret
         logger.info("Loaded checkpoint %s at epoch %s step %s", cfg.load, start_epoch, start_step)
+    else:
+        save(booster, exp_dir, model=model, ema=ema, optimizer=optimizer, lr_scheduler=lr_scheduler, sampler=sampler, epoch=0, step=0, global_step=0, batch_size=cfg.get("batch_size", None))
 
     model_sharding(ema)
 
@@ -416,6 +418,22 @@ def main():
 
         sampler.reset()
         start_step = 0
+
+    model_gathering(ema, ema_shape_dict)
+    global_step = epoch * num_steps_per_epoch + step
+    save_dir = save(
+        booster,
+        exp_dir,
+        model=model,
+        ema=ema,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+        sampler=sampler,
+        epoch=cfg_epochs - 1,
+        step=num_steps_per_epoch,
+        global_step=global_step + 1,
+        batch_size=cfg.get("batch_size", None),
+    )
 
 
 if __name__ == "__main__":
