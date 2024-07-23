@@ -1,4 +1,6 @@
-colossalai>=0.4.0
+#colossalai==0.4.0
+colossalai @ file:///home/ubuntu/ml-1cc/dave/Open-Sora-12/ColossalAI#egg=colossalai
+torch==2.3.1
 mmengine>=0.10.3
 pandas>=2.0.3
 timm==0.9.16
