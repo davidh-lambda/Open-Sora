@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 from glob import glob
+import re
 
 from mmengine.config import Config
 
@@ -144,9 +145,13 @@ def define_experiment_workspace(cfg, get_last_workspace=False):
     """
     # Make outputs folder (holds all experiment subfolders)
     os.makedirs(cfg.outputs, exist_ok=True)
-    experiment_index = len(glob(f"{cfg.outputs}/*"))
+
+    # Increment experiment number based on largest index found
+    existing_folders = glob(f"{cfg.outputs}/[0-9]*-*")
+    folder_indices = [int(re.match(r"(\d+)", os.path.basename(folder)).group(1)) for folder in existing_folders]
+    experiment_index = max(folder_indices, default=1) + 1
     if get_last_workspace:
-        experiment_index -= 1
+            experiment_index -= 1
 
     # Create an experiment folder
     model_name = cfg.model["type"].replace("/", "-")
