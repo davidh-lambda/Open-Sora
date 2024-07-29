@@ -1,7 +1,8 @@
 import os
+import sys
 from contextlib import nullcontext
 from copy import deepcopy
-from datetime import timedelta
+from datetime import timedelta, datetime
 from pprint import pformat
 
 import torch
@@ -42,6 +43,19 @@ def calculate_weight_norm(model):
     return total_norm
 
 
+file_path = '/tmp/EXPECTED_IDLE_TIME.TXT'
+def save_expected_idle_time(minutes):
+    # Calculate the future time
+    future_time_seconds = (datetime.now() + timedelta(minutes=minutes)).timestamp()
+
+    # Write the future time to the file
+    with open(file_path, 'w') as file:
+        file.write(str(future_time_seconds))
+
+    print(f"Expected idle time saved to {file_path}: {future_time_seconds}")
+
+
+
 def main():
     # ======================================================
     # 1. configs & runtime variables
@@ -63,6 +77,9 @@ def main():
     set_seed(cfg.get("seed", 1024))
     coordinator = DistCoordinator()
     device = get_current_device()
+
+    if dist.get_rank() == 0:
+        save_expected_idle_time(6)
 
     # == init exp_dir ==
     exp_name, exp_dir = define_experiment_workspace(cfg)
@@ -235,7 +252,8 @@ def main():
             start_epoch, start_step = ret
         logger.info("Loaded checkpoint %s at epoch %s step %s", cfg.load, start_epoch, start_step)
     else:
-        save(booster, exp_dir, model=model, ema=ema, optimizer=optimizer, lr_scheduler=lr_scheduler, sampler=sampler, epoch=0, step=0, global_step=0, batch_size=cfg.get("batch_size", None))
+        if False and not os.getenv("EXIT_ON_CKPT"):
+            save(booster, exp_dir, model=model, ema=ema, optimizer=optimizer, lr_scheduler=lr_scheduler, sampler=sampler, epoch=0, step=0, global_step=0, batch_size=cfg.get("batch_size", None))
 
     model_sharding(ema)
 
@@ -263,6 +281,9 @@ def main():
         sampler.set_epoch(epoch)
         dataloader_iter = iter(dataloader)
         logger.info("Beginning epoch %s...", epoch)
+        if dist.get_rank() == 0:
+            save_expected_idle_time(6)
+
 
         # == training loop in an epoch ==
         with tqdm(
@@ -401,6 +422,15 @@ def main():
                         global_step=global_step + 1,
                         batch_size=cfg.get("batch_size", None),
                     )
+
+                    # Check if the environment variable is set
+                    lastckptpath=f"/tmp/LAST_CKPT_PATH.txt"
+                    with open(lastckptpath, "w") as f:
+                        f.write(save_dir)
+                    if os.getenv("EXIT_ON_CKPT"):
+                        print(f'Environment variable {"EXIT_ON_CKPT"} is set. Exiting the program and saving the current ckpt file to {lastckptpath}.')
+                        sys.exit(0)  # Exit without an error code
+
                     if dist.get_rank() == 0:
                         model_sharding(ema)
                     logger.info(
