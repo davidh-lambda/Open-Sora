@@ -69,7 +69,7 @@ class VideoTextDataset(torch.utils.data.Dataset):
 
         if file_type == "video":
             # loading
-            vframes, vinfo = read_video(path, backend="av")
+            vframes, vinfo = read_video(path)
             video_fps = vinfo["video_fps"] if "video_fps" in vinfo else 24
 
             # Sampling video frames
@@ -146,7 +146,7 @@ class VariableVideoTextDataset(VideoTextDataset):
         video_fps = 24  # default fps
         if file_type == "video":
             # loading
-            vframes, vinfo = read_video(path, backend="av")
+            vframes, vinfo = read_video(path)
             video_fps = vinfo["video_fps"] if "video_fps" in vinfo else 24
 
             # Sampling video frames
