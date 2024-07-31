@@ -249,9 +249,10 @@ def read_video_cv2(video_path):
 
 
 def read_video(video_path, backend="av"):
-    if backend == "cv2":
-        vframes, vinfo = read_video_cv2(video_path)
-    elif backend == "av":
+    #if False and backend == "cv2":
+    #    vframes, vinfo = read_video_cv2(video_path)
+    #elif True or backend == "av":
+    if True:
         vframes, _, vinfo = read_video_av(filename=video_path, pts_unit="sec", output_format="TCHW")
     else:
         raise ValueError
