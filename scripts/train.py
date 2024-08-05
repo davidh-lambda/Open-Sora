@@ -34,6 +34,33 @@ from opensora.utils.misc import (
 from opensora.utils.train_utils import MaskGenerator, create_colossalai_plugin, update_ema
 
 
+import sys
+class Tee(object):
+    def __init__(self, name, mode):
+        self.file = open(name, mode)
+        self.stdout = sys.stdout
+        self.stderr = sys.stderr
+        sys.stdout = self
+        sys.stderr = self
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.file:
+            self.file.close()
+            self.file = None
+
+    def write(self, data):
+        self.file.write(data)
+        self.stdout.write(data)
+        self.file.flush() # ensure we have the current state
+
+    def flush(self):
+        self.file.flush()
+        self.stdout.flush()
+
+
 def calculate_weight_norm(model):
     total_norm = 0.0
     for param in model.parameters():
@@ -271,6 +298,11 @@ def main():
         "update_ema",
         "reduce_loss",
     ]
+
+    rank = dist.get_rank()
+    log_file = f"/tmp/o12_rank={rank}.log"
+    tee = Tee(log_file, 'w')
+
     for key in timer_keys:
         if record_time:
             timers[key] = Timer(key, coordinator=coordinator)
@@ -285,15 +317,18 @@ def main():
             save_expected_idle_time(6)
 
 
+
         # == training loop in an epoch ==
         with tqdm(
             enumerate(dataloader_iter, start=start_step),
             desc=f"Epoch {epoch}",
-            disable=not coordinator.is_master(),
+            disable=True,#not coordinator.is_master(),
             initial=start_step,
             total=num_steps_per_epoch,
         ) as pbar:
             for step, batch in pbar:
+                print(rank, "step", step)
+                print(rank, "total", num_steps_per_epoch)
                 timer_list = []
                 with timers["move_data"] as move_data_t:
                     x = batch.pop("video").to(device, dtype)  # [B, C, T, H, W]
@@ -302,6 +337,8 @@ def main():
                     timer_list.append(move_data_t)
 
                 # == visual and text encoding ==
+                print(rank, "batch shape", x.shape)
+                print(rank, "text encode", len(y))
                 with timers["encode"] as encode_t:
                     with torch.no_grad():
                         # Prepare visual inputs
@@ -322,6 +359,7 @@ def main():
                     timer_list.append(encode_t)
 
                 # == mask ==
+                print(rank, "get mask", len(y))
                 with timers["mask"] as mask_t:
                     mask = None
                     if cfg.get("mask_ratios", None) is not None:
@@ -331,11 +369,13 @@ def main():
                     timer_list.append(mask_t)
 
                 # == video meta info ==
+                print(rank, "video meta", batch)
                 for k, v in batch.items():
                     if isinstance(v, torch.Tensor):
                         model_args[k] = v.to(device, dtype)
 
                 # == diffusion loss computation ==
+                print(rank, "diffusion loss")
                 with timers["diffusion"] as loss_t:
                     loss_dict = scheduler.training_losses(model, x, model_args, mask=mask)
                 if record_time:
@@ -344,23 +384,29 @@ def main():
                 # == backward & update ==
                 with timers["backward"] as backward_t:
                     loss = loss_dict["loss"].mean()
+                    print(rank, "booster.backward()")
                     booster.backward(loss=loss, optimizer=optimizer)
+                    print(rank, "optimizer.step()")
                     optimizer.step()
+                    print(rank, "optimizer.zero_grad()")
                     optimizer.zero_grad()
 
                     # update learning rate
                     if lr_scheduler is not None:
+                        print(rank, "lr_scheduler.step()")
                         lr_scheduler.step()
                 if record_time:
                     timer_list.append(backward_t)
 
                 # == update EMA ==
+                print(rank, "update ema")
                 with timers["update_ema"] as ema_t:
                     update_ema(ema, model.module, optimizer=optimizer, decay=cfg.get("ema_decay", 0.9999))
                 if record_time:
                     timer_list.append(ema_t)
 
                 # == update log info ==
+                print(rank, "all reduce")
                 with timers["reduce_loss"] as reduce_loss_t:
                     all_reduce_mean(loss)
                     running_loss += loss.item()
@@ -371,6 +417,7 @@ def main():
                     timer_list.append(reduce_loss_t)
 
                 # == logging ==
+                print(rank, "logging")
                 if coordinator.is_master() and (global_step + 1) % cfg.get("log_every", 1) == 0:
                     weight_norm = calculate_weight_norm(model)
                     avg_loss = running_loss / log_step
@@ -379,6 +426,7 @@ def main():
                     # tensorboard
                     tb_writer.add_scalar("loss", loss.item(), global_step)
                     # wandb
+                    print(rank, "wandb") 
                     if cfg.get("wandb", False):
                         wandb_dict = {
                             "iter": global_step,
@@ -408,7 +456,9 @@ def main():
                 # == checkpoint saving ==
                 ckpt_every = cfg.get("ckpt_every", 0)
                 if ckpt_every > 0 and (global_step + 1) % ckpt_every == 0:
+                    print(rank, "checkpoint saving - model_gathering")
                     model_gathering(ema, ema_shape_dict)
+                    print(rank, "checkpoint saving - save_dir")
                     save_dir = save(
                         booster,
                         exp_dir,
@@ -424,6 +474,7 @@ def main():
                     )
 
                     # Check if the environment variable is set
+                    print(rank, "checkpoint saving - write LAST_CKPT_PATH") 
                     lastckptpath=f"/tmp/LAST_CKPT_PATH.txt"
                     with open(lastckptpath, "w") as f:
                         f.write(save_dir)
@@ -432,6 +483,7 @@ def main():
                         sys.exit(0)  # Exit without an error code
 
                     if dist.get_rank() == 0:
+                        print(rank, "checkpoint saving - model_sharding")
                         model_sharding(ema)
                     logger.info(
                         "Saved checkpoint at epoch %s, step %s, global_step %s to %s",
@@ -445,7 +497,9 @@ def main():
                     for timer in timer_list:
                         log_str += f"{timer.name}: {timer.elapsed_time:.3f}s | "
                     print(log_str)
+                print(rank, "next") 
 
+        print(rank, "sampler reset")
         sampler.reset()
         start_step = 0
 
