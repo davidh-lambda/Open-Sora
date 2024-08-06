@@ -13,7 +13,7 @@ def check_nvcc():
     if output and "release 12.1" in output:
         print("OK")
         return True
-    print("FAILED")
+    print("FAILED. Found: ", output)
     return False
 
 def check_python():
@@ -22,7 +22,7 @@ def check_python():
     if output and "Python 3.10." in output:
         print("OK")
         return True
-    print("FAILED")
+    print("FAILED. Found: ", output)
     return False
 
 def check_pytorch():
@@ -31,7 +31,7 @@ def check_pytorch():
     if output and "2.3.0" in output:
         print("OK")
         return True
-    print("FAILED")
+    print("FAILED. Found: ", output)
     return False
 
 def check_cuda_version():
@@ -40,14 +40,14 @@ def check_cuda_version():
     if output and "12.1" in output:
         print("OK")
         return True
-    print("FAILED")
+    print("FAILED. Found: ", output)
     return False
 
 def check_apex():
     print("Checking Apex... ", end="")
     output, error = run_command('python -c "import apex"')
     if error:
-        print("FAILED")
+        print("FAILED. Found: ", output)
         return False
     print("OK")
     return True
@@ -56,7 +56,7 @@ def check_flash_attn():
     print("Checking Flash Attention... ", end="")
     output, error = run_command('python -c "import flash_attn"')
     if error:
-        print("FAILED")
+        print("FAILED. Found: ", output)
         return False
     print("OK")
     return True
@@ -67,7 +67,7 @@ def check_xformers():
     if output and "xFormers" in output:
         print("OK")
         return True
-    print("FAILED")
+    print("FAILED. Found: ", output)
     return False
 
 def main():
