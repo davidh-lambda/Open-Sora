@@ -33,6 +33,18 @@ from opensora.utils.misc import (
 )
 from opensora.utils.train_utils import MaskGenerator, create_colossalai_plugin, update_ema
 
+import faulthandler
+import signal
+
+def setup_faulthandler(filename):
+    with open(filename, 'w') as f:
+        faulthandler.enable(file=f)
+    def dump_traceback_to_file(sig, frame):
+        with open(filename, 'a') as f:  # Append mode
+            faulthandler.dump_traceback(file=f)
+    signal.signal(signal.SIGUSR1, dump_traceback_to_file)
+
+
 
 def calculate_weight_norm(model):
     total_norm = 0.0
@@ -275,6 +287,11 @@ def main():
         "update_ema",
         "reduce_loss",
     ]
+
+    rank = dist.get_rank()
+    log_file = f"/tmp/o12d_rank={rank}.log"
+    setup_faulthandler(log_file)
+
     for key in timer_keys:
         if record_time:
             timers[key] = Timer(key, coordinator=coordinator)
