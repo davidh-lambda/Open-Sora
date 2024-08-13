@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from PIL import ImageFile
 from torchvision.datasets.folder import IMG_EXTENSIONS, pil_loader
+import random
 
 from opensora.registry import DATASETS
 
@@ -146,13 +147,17 @@ class VariableVideoTextDataset(VideoTextDataset):
         video_fps = 24  # default fps
         if file_type == "video":
             # loading
-            vframes, vinfo = read_video(path)
-            video_fps = vinfo["video_fps"] if "video_fps" in vinfo else 24
 
-            # Sampling video frames
-            video = temporal_random_crop(vframes, num_frames, self.frame_interval)
-            video = video.clone()
-            del vframes
+            size = num_frames * self.frame_interval
+            total_frames = sample["num_frames"]
+
+            rand_end = max(0, total_frames - size - 1)
+            start_frame_ind = random.randint(0, rand_end)
+            end_frame_ind = min(start_frame_ind + size, total_frames)
+
+            video, vinfo = read_video(path, start_pts=start_frame_ind, end_pts=end_frame_ind, pts_unit="pts")
+            assert video.shape[0] == size
+            video_fps = vinfo["video_fps"] if "video_fps" in vinfo else 24
 
             video_fps = video_fps // self.frame_interval
 

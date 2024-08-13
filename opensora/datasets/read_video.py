@@ -58,6 +58,9 @@ def read_video_av(
     # backend check
     assert get_video_backend() == "pyav", "pyav backend is required for read_video_av"
     _check_av_available()
+
+    assert pts_unit == "pts" and start_pts is not None and end_pts is not None
+
     # end_pts check
     if end_pts is None:
         end_pts = float("inf")
@@ -76,25 +79,19 @@ def read_video_av(
     iter_video = container.decode(**{"video": 0})
     frame = next(iter_video).to_rgb().to_ndarray()
     height, width = frame.shape[:2]
-    total_frames = container.streams.video[0].frames
-    if total_frames == 0:
-        total_frames = MAX_NUM_FRAMES
-        warnings.warn(f"total_frames is 0, using {MAX_NUM_FRAMES} as a fallback")
+    total_frames = end_pts - start_pts + 1
     container.close()
     del container
 
-    # HACK: must create before iterating stream
-    # use np.zeros will not actually allocate memory
-    # use np.ones will lead to a little memory leak
-    video_frames = np.zeros((total_frames, height, width, 3), dtype=np.uint8)
+    vframes = torch.zeros((total_frames, height, width, 3), dtype=torch.uint8)
 
     # == read ==
     try:
         # TODO: The reading has memory leak (4G for 8 workers 1 GPU)
         container = av.open(filename, metadata_errors="ignore")
         assert container.streams.video is not None
-        video_frames = _read_from_stream(
-            video_frames,
+        _read_from_stream(
+            vframes,
             container,
             start_pts,
             end_pts,
@@ -105,9 +102,13 @@ def read_video_av(
         )
     except av.AVError as e:
         print(f"[Warning] Error while reading video {filename}: {e}")
+    finally:
+        # garbage collection for thread leakage
+        container.close()
+        del container
+        # NOTE: manually garbage collect to close pyav threads
+        gc.collect()
 
-    vframes = torch.from_numpy(video_frames).clone()
-    del video_frames
     if output_format == "TCHW":
         # [T,H,W,C] --> [T,C,H,W]
         vframes = vframes.permute(0, 3, 1, 2)
@@ -125,8 +126,7 @@ def _read_from_stream(
     stream: "av.stream.Stream",
     stream_name: Dict[str, Optional[Union[int, Tuple[int, ...], List[int]]]],
     filename: Optional[str] = None,
-) -> List["av.frame.Frame"]:
-
+):
     if pts_unit == "sec":
         # TODO: we should change all of this from ground up to simply take
         # sec and convert to MS in C++
@@ -169,46 +169,13 @@ def _read_from_stream(
         return []
 
     # == main ==
-    buffer_count = 0
-    frames_pts = []
-    cnt = 0
     try:
-        for _idx, frame in enumerate(container.decode(**stream_name)):
-            frames_pts.append(frame.pts)
-            video_frames[cnt] = frame.to_rgb().to_ndarray()
-            cnt += 1
-            if cnt >= len(video_frames):
+        for idx, frame in enumerate(container.decode(**stream_name)):
+            if idx >= len(video_frames):
                 break
-            if frame.pts >= end_offset:
-                if should_buffer and buffer_count < max_buffer_size:
-                    buffer_count += 1
-                    continue
-                break
+            video_frames[idx] = torch.from_numpy(frame.to_rgb().to_ndarray())
     except av.AVError as e:
         print(f"[Warning] Error while reading video {filename}: {e}")
-
-    # garbage collection for thread leakage
-    container.close()
-    del container
-    # NOTE: manually garbage collect to close pyav threads
-    gc.collect()
-
-    # ensure that the results are sorted wrt the pts
-    # NOTE: here we assert frames_pts is sorted
-    start_ptr = 0
-    end_ptr = cnt
-    while start_ptr < end_ptr and frames_pts[start_ptr] < start_offset:
-        start_ptr += 1
-    while start_ptr < end_ptr and frames_pts[end_ptr - 1] > end_offset:
-        end_ptr -= 1
-    if start_offset > 0 and start_offset not in frames_pts[start_ptr:end_ptr]:
-        # if there is no frame that exactly matches the pts of start_offset
-        # add the last frame smaller than start_offset, to guarantee that
-        # we will have all the necessary data. This is most useful for audio
-        if start_ptr > 0:
-            start_ptr -= 1
-    result = video_frames[start_ptr:end_ptr].copy()
-    return result
 
 
 def read_video_cv2(video_path):
@@ -248,12 +215,12 @@ def read_video_cv2(video_path):
         return frames, vinfo
 
 
-def read_video(video_path, backend="av"):
+def read_video(video_path, start_pts=0, end_pts=None, pts_unit="pts", backend="av"):
     #if False and backend == "cv2":
     #    vframes, vinfo = read_video_cv2(video_path)
     #elif True or backend == "av":
     if True:
-        vframes, _, vinfo = read_video_av(filename=video_path, pts_unit="sec", output_format="TCHW")
+        vframes, _, vinfo = read_video_av(filename=video_path, start_pts=start_pts, end_pts=end_pts, pts_unit=pts_unit, output_format="TCHW")
     else:
         raise ValueError
 
