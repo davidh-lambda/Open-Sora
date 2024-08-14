@@ -148,15 +148,17 @@ class VariableVideoTextDataset(VideoTextDataset):
         if file_type == "video":
             # loading
 
-            size = num_frames * self.frame_interval
-            total_frames = sample["num_frames"]
+            cropped_frames = num_frames * self.frame_interval
+            video_frames = sample["num_frames"]
 
-            rand_end = max(0, total_frames - size - 1)
+            rand_end = max(0, video_frames - cropped_frames - 1)
             start_frame_ind = random.randint(0, rand_end)
-            end_frame_ind = min(start_frame_ind + size, total_frames)
+            end_frame_ind = min(start_frame_ind + cropped_frames - 1, video_frames)
 
-            video, vinfo = read_video(path, start_pts=start_frame_ind, end_pts=end_frame_ind, pts_unit="pts")
-            assert video.shape[0] == size
+            video, vinfo = read_video(
+                path, start_pts=start_frame_ind, end_pts=end_frame_ind, pts_unit="pts"
+            )
+            assert video.shape[0] == cropped_frames
             video_fps = vinfo["video_fps"] if "video_fps" in vinfo else 24
 
             video_fps = video_fps // self.frame_interval
@@ -195,10 +197,7 @@ class VariableVideoTextDataset(VideoTextDataset):
         return ret
 
     def __getitem__(self, index):
-        try:
-            return self.getitem(index)
-        except:
-            return None
+        return self.getitem(index)
 
 
 @DATASETS.register_module()

@@ -67,47 +67,37 @@ def read_video_av(
     if end_pts < start_pts:
         raise ValueError(f"end_pts should be larger than start_pts, got start_pts={start_pts} and end_pts={end_pts}")
 
-    # == get video info ==
     info = {}
-    # TODO: creating an container leads to memory leak (1G for 8 workers 1 GPU)
-    container = av.open(filename, metadata_errors="ignore")
-    # fps
-    video_fps = container.streams.video[0].average_rate
-    # guard against potentially corrupted files
-    if video_fps is not None:
-        info["video_fps"] = float(video_fps)
-    iter_video = container.decode(**{"video": 0})
-    frame = next(iter_video).to_rgb().to_ndarray()
-    height, width = frame.shape[:2]
-    total_frames = end_pts - start_pts + 1
-    container.close()
-    del container
-
-    vframes = torch.zeros((total_frames, height, width, 3), dtype=torch.uint8)
 
     # == read ==
     try:
         # TODO: The reading has memory leak (4G for 8 workers 1 GPU)
         container = av.open(filename, metadata_errors="ignore")
         assert container.streams.video is not None
-        _read_from_stream(
-            vframes,
-            container,
-            start_pts,
-            end_pts,
-            pts_unit,
-            container.streams.video[0],
-            {"video": 0},
-            filename=filename,
-        )
-    except av.AVError as e:
-        print(f"[Warning] Error while reading video {filename}: {e}")
+
+        video_fps = container.streams.video[0].average_rate
+        if video_fps is not None:
+            info["video_fps"] = float(video_fps)
+        height = container.streams.video[0].height
+        width = container.streams.video[0].width
+        total_frames = end_pts - start_pts + 1
+
+        vframes = torch.zeros((total_frames, height, width, 3), dtype=torch.uint8)
+
+        for idx, frame in enumerate(container.decode(video=0)):
+            if idx < start_pts or idx > end_pts:
+                continue
+            rgb_frame = frame.to_rgb() # NOTE: may or may not allocate depending on current format
+            np_frame = rgb_frame.to_ndarray() # NOTE: may or may not allocate depending on current format
+            # NOTE: torch.from_numpy will attempt to share memory
+            vframes[idx - start_pts] = torch.from_numpy(np_frame).clone()
+            del np_frame
+            del rgb_frame
+            del frame
     finally:
         # garbage collection for thread leakage
         container.close()
         del container
-        # NOTE: manually garbage collect to close pyav threads
-        gc.collect()
 
     if output_format == "TCHW":
         # [T,H,W,C] --> [T,C,H,W]
@@ -115,67 +105,6 @@ def read_video_av(
 
     aframes = torch.empty((1, 0), dtype=torch.float32)
     return vframes, aframes, info
-
-
-def _read_from_stream(
-    video_frames,
-    container: "av.container.Container",
-    start_offset: float,
-    end_offset: float,
-    pts_unit: str,
-    stream: "av.stream.Stream",
-    stream_name: Dict[str, Optional[Union[int, Tuple[int, ...], List[int]]]],
-    filename: Optional[str] = None,
-):
-    if pts_unit == "sec":
-        # TODO: we should change all of this from ground up to simply take
-        # sec and convert to MS in C++
-        start_offset = int(math.floor(start_offset * (1 / stream.time_base)))
-        if end_offset != float("inf"):
-            end_offset = int(math.ceil(end_offset * (1 / stream.time_base)))
-    else:
-        warnings.warn("The pts_unit 'pts' gives wrong results. Please use pts_unit 'sec'.")
-
-    should_buffer = True
-    max_buffer_size = 5
-    if stream.type == "video":
-        # DivX-style packed B-frames can have out-of-order pts (2 frames in a single pkt)
-        # so need to buffer some extra frames to sort everything
-        # properly
-        extradata = stream.codec_context.extradata
-        # overly complicated way of finding if `divx_packed` is set, following
-        # https://github.com/FFmpeg/FFmpeg/commit/d5a21172283572af587b3d939eba0091484d3263
-        if extradata and b"DivX" in extradata:
-            # can't use regex directly because of some weird characters sometimes...
-            pos = extradata.find(b"DivX")
-            d = extradata[pos:]
-            o = re.search(rb"DivX(\d+)Build(\d+)(\w)", d)
-            if o is None:
-                o = re.search(rb"DivX(\d+)b(\d+)(\w)", d)
-            if o is not None:
-                should_buffer = o.group(3) == b"p"
-    seek_offset = start_offset
-    # some files don't seek to the right location, so better be safe here
-    seek_offset = max(seek_offset - 1, 0)
-    if should_buffer:
-        # FIXME this is kind of a hack, but we will jump to the previous keyframe
-        # so this will be safe
-        seek_offset = max(seek_offset - max_buffer_size, 0)
-    try:
-        # TODO check if stream needs to always be the video stream here or not
-        container.seek(seek_offset, any_frame=False, backward=True, stream=stream)
-    except av.AVError as e:
-        print(f"[Warning] Error while seeking video {filename}: {e}")
-        return []
-
-    # == main ==
-    try:
-        for idx, frame in enumerate(container.decode(**stream_name)):
-            if idx >= len(video_frames):
-                break
-            video_frames[idx] = torch.from_numpy(frame.to_rgb().to_ndarray())
-    except av.AVError as e:
-        print(f"[Warning] Error while reading video {filename}: {e}")
 
 
 def read_video_cv2(video_path):
