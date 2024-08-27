@@ -197,7 +197,16 @@ class VariableVideoTextDataset(VideoTextDataset):
         return ret
 
     def __getitem__(self, index):
-        return self.getitem(index)
+        try:
+            return self.getitem(index)
+        except Exception as e:
+            try:
+                index, num_frames, height, width = [int(val) for val in index.split("-")]
+                sample = self.data.iloc[index]
+                print(f"Error while loading file: {sample['path']}: {str(e)}")
+            except Exception as e2:
+                print(f"Error while loading index: {index}: {str(e2)}")
+            return None
 
 
 @DATASETS.register_module()
