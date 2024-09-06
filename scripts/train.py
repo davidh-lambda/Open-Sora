@@ -46,6 +46,33 @@ def setup_faulthandler(filename):
 
 
 
+import sys
+class Tee(object):
+    def __init__(self, name, mode):
+        self.file = open(name, mode)
+        self.stdout = sys.stdout
+        self.stderr = sys.stderr
+        sys.stdout = self
+        sys.stderr = self
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.file:
+            self.file.close()
+            self.file = None
+
+    def write(self, data):
+        self.file.write(data)
+        self.stdout.write(data)
+        self.file.flush() # ensure we have the current state
+
+    def flush(self):
+        self.file.flush()
+        self.stdout.flush()
+
+
 def calculate_weight_norm(model):
     total_norm = 0.0
     for param in model.parameters():
@@ -212,6 +239,7 @@ def main():
         weight_decay=cfg.get("weight_decay", 0),
         eps=cfg.get("adam_eps", 1e-8),
     )
+    print("weight decay", cfg.get("weight_decay", 0))
 
     warmup_steps = cfg.get("warmup_steps", None)
 
@@ -289,8 +317,8 @@ def main():
     ]
 
     rank = dist.get_rank()
-    log_file = f"/tmp/o12d_rank={rank}.log"
-    setup_faulthandler(log_file)
+    #log_file = f"{exp_dir}/o12f_rank={rank}.log"
+    #tee = Tee(log_file, 'w')
 
     for key in timer_keys:
         if record_time:
@@ -304,6 +332,7 @@ def main():
         logger.info("Beginning epoch %s...", epoch)
         if dist.get_rank() == 0:
             save_expected_idle_time(6)
+
 
 
         # == training loop in an epoch ==
