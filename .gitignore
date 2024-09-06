@@ -1,3 +1,11 @@
+ColossalAI
+data_csvs
+assets/texts
+heimdall
+stages
+unused_scripts
+lazygit
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
