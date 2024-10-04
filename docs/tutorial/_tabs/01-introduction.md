@@ -1,6 +1,6 @@
 ---
 layout: post
-icon: fas fa-info-circle
+icon: fas fa-lightbulb
 title: Introduction
 date: 2024-10-02
 toc: true
