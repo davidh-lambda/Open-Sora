@@ -20,7 +20,7 @@ from opensora.datasets.dataloader import prepare_dataloader
 from opensora.registry import DATASETS, MODELS, SCHEDULERS, build_module
 from opensora.utils.ckpt_utils import load, model_gathering, model_sharding, record_model_param_shape, save
 from opensora.utils.config_utils import define_experiment_workspace, parse_configs, save_training_config
-from opensora.utils.lr_scheduler import LinearWarmupLR
+from opensora.utils.lr_scheduler import LinearWarmupLR, OneCycleScheduler
 from opensora.utils.misc import (
     Timer,
     all_reduce_mean,
@@ -135,7 +135,7 @@ def main():
     if coordinator.is_master():
         tb_writer = create_tensorboard_writer(exp_dir)
         if cfg.get("wandb", False):
-            wandb.init(project="que_sora_sora12", name=exp_name, config=cfg.to_dict(), dir="./outputs/wandb")
+            wandb.init(project="sora_speedrun", name=exp_name, config=cfg.to_dict(), dir="./outputs/wandb")
 
     # == init ColossalAI booster ==
     plugin = create_colossalai_plugin(
@@ -245,8 +245,21 @@ def main():
 
     if warmup_steps is None:
         lr_scheduler = None
+    elif hasattr(cfg, 'lr_schedule') and cfg.lr_schedule == "1cycle":
+        lr_scheduler = OneCycleScheduler(
+            optimizer,
+            min_lr=cfg.min_lr,
+            max_lr=cfg.max_lr,
+            final_lr=cfg.lr,
+            warmup_steps=cfg.warmup_steps,
+            cooldown_steps=cfg.cooldown_steps,
+            anneal_strategy=cfg.anneal_strategy
+        )
     else:
-        lr_scheduler = LinearWarmupLR(optimizer, warmup_steps=cfg.get("warmup_steps"))
+        lr_scheduler = LinearWarmupLR(
+            optimizer,
+            warmup_steps=cfg.get("warmup_steps")
+        )
 
     # == additional preparation ==
     if cfg.get("grad_checkpoint", False):
