@@ -110,20 +110,18 @@ Miniconda is a minimal installer for Conda, which is an open-source package mana
 
 
 ## **Cloning and Configuring the Codebase**
-We'll now clone our fork of the Open-Sora repository.
+We'll now clone [our fork of the Open-Sora repository](https://github.com/LambdaLabsML/Open-Sora).
 
 1. **Clone the Repository**
    ```bash
    git clone https://github.com/LambdaLabsML/Open-Sora.git
    ```
-2. **Checkout the Training Branch**  
-   Navigate to the repository and switch to the `retrain_from_scratch` branch: (TODO: push this to main?)
+2. **Navigate to the Repository**  
    ```bash
    cd Open-Sora
-   git checkout retrain_from_scratch
    ```
 3. **Run the Installation Script**  
-   The installation script will handle the entire setup process, including creating the Conda environment and installing all necessary dependencies. Run the script:
+   The installation script will handle the entire setup process, including creating the Conda environment and installing all necessary dependencies. Run the [installation script](https://github.com/LambdaLabsML/Open-Sora/blob/main/install.sh):
    ```bash
    bash install.sh
    ```
@@ -137,13 +135,13 @@ We'll now clone our fork of the Open-Sora repository.
    conda activate osora-12
    ```
 5. **Verifying the Installation**  
-   To confirm that everything is set up correctly, run the `install-check.py` script:
+   To confirm that everything is set up correctly, run the [installation checker](https://github.com/LambdaLabsML/Open-Sora/blob/main/install-check.py):
 
    ```bash
    python install-check.py
    ```
 
-   You should see the following output:
+   If everything went well, you should see the following output:
 
    ```shell
    Starting environment check...
@@ -162,6 +160,7 @@ We'll now clone our fork of the Open-Sora repository.
 
 ### **Installation Details**
 TODO: either change to torch 2.2 and simplify or check if this is reproducable and adapt the install-checker.
+{: .todo}
 
 **Optional:** The following details provide additional insights into what the installation script does. You can skip this section if you're not interested in the specifics.
 
@@ -270,9 +269,14 @@ Ensuring that all nodes in your cluster have access to the necessary files and e
 
    Check your wandb dashboard to see if the test runs have been logged.
 
+
+<br/>
+
 ---
 
-**Next Steps**:  
+**What Next?**:  
 By completing these steps, you've set up your cluster environment, cloned and configured the Open-Sora codebase, ensured all nodes have the necessary files and models, and initialized wandb for experiment tracking. You're now ready to proceed to the next stage: downloading and preprocessing the dataset.
 
 Proceed to the [**Dataset** — Downloading & Preprocessing](../03-dataset) section to begin working with the data required for training the Open-Sora model.
+
+---

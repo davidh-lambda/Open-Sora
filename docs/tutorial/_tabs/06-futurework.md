@@ -12,3 +12,13 @@ After training, we'll explore methods to enhance model performance after trainin
 - **Applying LoRA**: How to implement Low-Rank Adaptation to fine-tune your model. (link to the previous text2brick lora finetuning)
 
 
+<br/>
+
+---
+
+**What Next?**:  
+TODO
+
+Proceed to the [TODO](../04-training) section to begin training!
+
+---

@@ -7,23 +7,119 @@ toc: true
 ---
 
 
-### [**Dataset** — Downloading & Preprocessing](../03-dataset)
-Let's face it: Video data is not easily accessible, and there aren't many publicly available sources.  
-- download [**OpenVid**](https://github.com/NJU-PCALab/OpenVid-1M) and [**MiraData**](https://github.com/mira-space/MiraData) for our reproduction experiment. For MiraData, we follow the guidance from the author's [repo
-](https://github.com/mira-space/MiraData/tree/v1?tab=readme-ov-file#download) to download the 330K version of the dataset. OpenVid has 1M video clips and captions that can be downloaded from their Huggingface [link](https://huggingface.co/datasets/nkp37/OpenVid-1M).  
-- Since both OpenVid and MiraData come with clips and captions, we can skip most of the [preprocess steps](https://github.com/hpcaitech/Open-Sora/blob/main/docs/data_processing.md), except for adding missing meta data to the csv file for training. The full list of required colmuns by the csv for training opensora model: `path,text,num_frames,height,width,aspect_ratio,fps,resolution,file_size`, and suming you've got the csv with the columns path,text for your data set ready, all you need to do to fill the rest is: 
-```
+# Downloading & Preprocessing
+Let's face it: video data is not easily accessible, and there aren't many publicly available sources. In this section, we'll guide you through downloading the necessary datasets, preprocessing the data, and ensuring it's ready for training the Open-Sora model.
+
+> **Note:** Ensure you have sufficient storage space and bandwidth to download these large datasets. The total required disk space is `~37TB`.
+{: .prompt-tip}
+
+## **Download the Datasets**
+We'll be using two primary datasets for our reproduction experiment:
+* **[OpenVid](https://github.com/NJU-PCALab/OpenVid-1M)**: Contains 1 million short video clips and corresponding captions.  
+  You can download the dataset from their [Huggingface link](https://huggingface.co/datasets/nkp37/OpenVid-1M).  
+* **[MiraData](https://github.com/mira-space/MiraData)**: Contains 330k (but different splits exists too) long video clips and corresponding captions.  
+  For MiraData, we'll follow the guidance from the author's [repository](https://github.com/mira-space/MiraData/tree/v1?tab=readme-ov-file#download) to download the **330K** version of the dataset (the meta file we use is `miradata_v1_330k.csv`).  
+* **Custom Dataset**: Our guide also covers how to use your own video data set consisting of video clips and corresponding captions.
+
+**Dataset Summary**
+
+Dataset | License | Dataset Size | Clip Dimensions | Total Required Disk Space
+--------| ------- | ------------ | --------------- | -------------------------
+OpenVid | CC-BY-4.0 | 1M Clips and Captions |  | 7.9TB                    
+MiraData | GPL-3.0 | 330k Clips and Captions |  | 29TB                    
+
+
+## **Preprocessing the Datasets**
+Both OpenVid and MiraData come with video clips and captions. Therefore, we can skip most of the preprocessing steps outlined in the [Open-Sora data processing guide](https://github.com/hpcaitech/Open-Sora/blob/main/docs/data_processing.md), except for adding missing metadata to the CSV file required for training and filtering out large or unsupported files.
+
+
+### **Required Columns for Training**
+To train using the Open-Sora code base, we will need a CSV file with the following columns:
+`path`, `text`, `num_frames`, `height`, `width`, `aspect_ratio`, `fps`, `resolution`, `file_size`.
+
+But thankfully, there's a script to generate most of these columns from only `path` and `text`.
+So, assuming you have a CSV file (`dataset.csv`{: .filename}) with the columns `path` and `text`, you can add the remaining required columns by running:
+
+```bash
 python -m tools.datasets.datautil dataset.csv --info --remove-empty-caption
 ```
-- We remove video clip that are larger than 50MB since they are expensive to load during training.
-- We found certain video clips will cause FFMPEG error and crash the training, so have to filter out files with FFMPEG errors from the dataset before training. To do so, we check for each video clip whether FFMPEG can decode the video. This process is CPU-intensive and to speed up we parallelize it across multiple servers. And the steps to do so are
-```
-# Filter out FFMPEG errors.
-1. create an `all.txt` with all file names (essentially only the column `path` from our dataset.csv.
-2. assuming we have 24 nodes available for checking, `split -n l/24 all.txt` to create the sub-lists xa ... xz
-3. adapt the parameters in `tools/ffmpeg_check_parallel.sh` and run it on all nodes
-4. this will create .err files along all files in all.txt. if the file is empty, it's good, if it's non-empty there was an error
-5. we will filter out all non-zero err files from all.txt using `tools/ffmpeg_filter_without_errors.py`
-```
+This command will run in parallel, will result in a new file called `dataset_info_noempty.csv`{: .filename} with all necessary metadata columns inserted and remove any entries with empty captions.
 
-We store the dataset on a shared storage so they are available for all compute nodes. 
+
+### **Filtering Large Video Clips**
+To optimize training performance, we remove video clips larger than `50MB`, as they are more expensive to load during training.
+
+```bash
+python -m tools.datasets.filter_large_videos dataset_info_noempty.csv 50
+```
+This results in a new file called `dataset_info_noempty_le50MB.csv`{: .filename}.
+
+
+### **Filtering Broken and Unsupported Files**
+Open-Sora uses `ffmpeg` under the hood to open files on-the-fly.
+Some video clips may cause FFMPEG warnings or errors, and, in the worst case: crash the training process. To prevent this, we need to filter out files that FFMPEG cannot decode. This process is CPU-intensive, so we'll parallelize it across multiple servers.
+
+The idea of filtering is simple: read each file with ffmpeg, write to a file called `$filename.err` and then filter using the file size of the error file.
+
+> **Warning:** This filtering process can be time-consuming depending on the size of your dataset and the number of nodes available for parallel processing.
+{: .prompt-tip}
+
+### **Steps to Filter Out Problematic Video Clips**
+
+1. **Create `filenames.txt` containing only all filenames:**  
+   To extract the `path` column from `dataset_info_noempty_le50MB.csv` and save it to `filenames.txt`:
+   ```bash
+   python -c "import pandas as p, sys; p.read_csv(sys.argv[1]).path.to_csv(sys.argv[2], index=0, header=0)" dataset_info_noempty_le50MB.csv filenames.txt
+   ```
+2. **Split `filenames.txt` into Sub-Lists for Parallel Processing:**  
+   Assuming you have `24` nodes available for checking, split `filenames.txt` into 24 sub-lists:
+   ```bash
+   split -n l/24 filenames.txt part_
+   ```
+   This will create files named `part_aa`, `part_ab`, ..., `part_az`.
+3. **Adapt and Run the FFMPEG Check Script on All Nodes**  
+   The following script will create `.err` files alongside each video file in `filenames.txt`. An empty `.err` file indicates no errors, while a non-empty file signifies an FFMPEG error with that video.
+
+   TODO: test this command
+   {: .todo}
+
+   ```bash
+   paste ~/nodes.txt <(ls part_* | sort) | parallel --colsep '\t' ssh {1} 'bash tools/ffmpeg_check_parallel.sh {2}'
+   ```
+4. **Filter Out Files with FFMPEG Errors**  
+   Use the following Python script to filter out video files that have FFMPEG errors:
+   ```python
+   python tools/ffmpeg_filter_without_errors.py filenames.txt
+   ```
+5. **Construct a New CSV from the List of Working Files**  
+   This will generate a new file excluding the problematic video clips, ensuring a stable training dataset.
+
+   TODO add this script
+   {: .todo}
+
+   ```python
+   TODO
+   ```
+
+## **Storing the Dataset on Shared Storage**
+
+After preprocessing, we make sure that all compute nodes have access to the preprocessed dataset, store it on a shared storage system accessible by all nodes.
+
+For the remainder of this tutorial, we'll suggest that the filtered CSVs are saved in the training repository as follows:
+- the CSV for OpenVid data under `OpenVid-1M-osora_le50MB.csv`{: .filepath}
+- the combined CSV for OpenVid and MiraData data under `OpenVid-Miradata-mix.csv`{: .filepath}
+
+> **Important:** Ensure that the shared storage is mounted and accessible from all nodes in your cluster before initiating the training process.
+{: .prompt-tip}
+
+
+<br/>
+
+---
+
+**What Next?**:  
+By following these steps, you've successfully downloaded, preprocessed, and prepared the dataset required for training the Open-Sora model. You're now ready to proceed to the next stage: training the model on your cluster.
+
+Proceed to the [**Training** — Get the Ball Rolling](../04-training) section to begin training!
+
+---

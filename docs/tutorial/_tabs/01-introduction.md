@@ -6,7 +6,7 @@ date: 2024-10-02
 toc: true
 ---
 
-# Let's reproduce a T2I model!
+# Let's reproduce a **T2V** model!
 In this tutorial, we'll reproduce [**Open-Sora 1.2**](https://github.com/hpcaitech/Open-Sora), a **1.1B parameter Text-to-Video (T2V) model** based on a transformer-based diffusion architecture. Text-to-Video models require a different scaling than Text-to-Image (T2I) models. This tutorial will guide you through the process of downloading and preparing the dataset, training this model from scratch, addressing the unique challenges of training at scale, and providing tips for troubleshooting a distributed training job.
 
 
@@ -41,12 +41,12 @@ Let's face it: Video data is not easily accessible, and there aren't many public
 We'll
 - download [**OpenVid**](https://github.com/NJU-PCALab/OpenVid-1M) and [**MiraData**](https://github.com/mira-space/MiraData) for our reproduction experiment
 - walk through the necessary steps to **preprocess the datasets**.
-- Since preprocessing takes time even at this scale, we'll also talk about how to use your cluster to **parallelize** such preprocessing tasks conveniently without writing any code - call it a little love letter to what Unix already brings to the table if you want <3.
+- Since preprocessing takes time even at this scale, we'll also talk about how to use your cluster to **parallelize** such preprocessing tasks conveniently without writing any code - we'll use only what Unix already brings to the table.
 
 
 ### [**Training** — Get the Ball Rolling](../04-training)
 Training on this scale also presents unique challenges; here's what we'll cover.
-- **Training Configurations**: We'll suggest settings for a speed run (18k GPU hours) and a full training run (100k GPU hours) for you to choose from and discuss what to expect from each. We'll also share intermediate and final results for our runs and discuss the two setups that we've tested.
+- **Training Configurations**: We'll suggest settings for a speed run (18k GPU hours) and an addtional 7k GPUs hours run to improve the results. We'll discuss what to expect from each and share intermediate and final results for our runs.
 - **Starting and Monitoring Training on a Cluster**: Open-Sora is built on top of the [ColossalAI launcher](https://colossalai.org/). We'll start by simply providing the commands to get you started and how to monitor loss curves in [weights and biases](https://wandb.com).
 - **Evaluating Model Quality**: Understand how to evaluate model performance using a separate inference server.
 - **Monitoring Cluster Health**: ?
@@ -68,3 +68,12 @@ Finally, we'll address common problems you might encounter and how to solve them
 - **Resolving Resource Bottlenecks**: Strategies to manage and optimize resource utilization.
 
 By the end of this tutorial, you'll have a comprehensive understanding of what's involved in scaling up T2V models like Open-Sora 1.2. You'll be better equipped to handle the challenges that come with large-scale training and be prepared to troubleshoot and optimize your models effectively.
+
+<br/>
+
+---
+
+**So Let's Start!**:  
+Proceed to the [**Setup** — Clone, Install & Set Up Your Cluster](../02-setup) section to begin setting everything up.
+
+---

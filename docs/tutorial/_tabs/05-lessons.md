@@ -14,3 +14,15 @@ Finally, we'll address common problems you might encounter and how to solve them
 * dataloader pyspy
 - **Addressing Cluster-Specific Challenges**: Guidance on navigating the complexities of training on a cluster.
 * time sync error
+
+
+<br/>
+
+---
+
+**What Next?**:  
+TODO
+
+Proceed to the [TODO](../04-training) section to begin training!
+
+---
