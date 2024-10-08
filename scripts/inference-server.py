@@ -9,7 +9,8 @@ import wandb
 
 wandb.require("core")
 
-project = "que_sora_sora12"
+project = "sora_speedrun"
+ckpt_dir = "outputs_speedrun"
 
 api = wandb.Api()
 runs = list(api.runs())
@@ -29,7 +30,7 @@ def get_run_id(expnum):
 
 def run_script(settings, global_settings, input_name, prompts, last_step, compute_only, commit):
     settingsstr = '_'.join(f'{v.replace(":", "-")}' for k, v in settings.items())
-    output_dir = input_name.replace("outputs/", f"samples/{settingsstr}/")
+    output_dir = input_name.replace(ckpt_dir + "/", f"samples/{settingsstr}/")
     os.makedirs(output_dir, exist_ok=True)
 
     # skip creation if already done
@@ -143,7 +144,7 @@ def main():
 
         input_names = []
         for expnum in expnums:
-            input_names += glob.glob("./outputs/%03d-STDiT3-XL-2/epoch*" % expnum)
+            input_names += glob.glob("./" + ckpt_dir + "/%03d-STDiT3-XL-2/epoch*" % expnum)
         #input_names = sorted(input_names, key=lambda name: int(re.search(r'epoch(\d+)-', name).group(1)))
 
         filtered_input_names = []
@@ -165,13 +166,13 @@ def main():
         if compute_only:
             run = None
         elif save_to_new:
-            run = wandb.init(project=project, dir="./outputs/wandb")
+            run = wandb.init(project=project, dir="./" + ckpt_dir + "/wandb")
         elif args.save_to:
             run = wandb.init(project=project, id=args.save_to, resume=True, settings=wandb.Settings(_disable_stats=True, _disable_meta=True))
         else:
             assert len(expnums) == 1
             run_id = get_run_id(expnum)
-            run = wandb.init(project=project, dir="./outputs/wandb", id=run_id, resume=True, settings=wandb.Settings(_disable_stats=True, _disable_meta=True))
+            run = wandb.init(project=project, dir="./" + ckpt_dir + "/wandb", id=run_id, resume=True, settings=wandb.Settings(_disable_stats=True, _disable_meta=True))
 
         if not save_to_new:
             filtered_input_names = reversed(filtered_input_names)

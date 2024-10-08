@@ -47,7 +47,7 @@ bucket_config = {  # 12s/it
 grad_checkpoint = True
 
 # Acceleration settings
-num_workers = 16
+num_workers = 8
 num_bucket_build_workers = 16
 #prefetch_factor=2
 dtype = "bf16"
@@ -96,19 +96,17 @@ mask_ratios = {
 
 # Log settings
 seed = 42
-outputs = "outputs"
+outputs = "outputs_speedrun"
 wandb = True
-epochs = 10
+epochs = 5
 log_every = 10
-ckpt_every = 200
+ckpt_every = 100
 
 # optimization settings
 load = None
 grad_clip = 1.0
-# 508/96 * 1e-4
-#lr = 0.00052917
-lr = 0.0001
+lr = 0.00016
 ema_decay = 0.99
 adam_eps = 1e-15
-# 1000 / (507/96)
-warmup_steps = 200
+warmup_steps = 400
+weight_decay = 0.01

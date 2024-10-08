@@ -78,16 +78,17 @@ mask_ratios = {
 
 # Log settings
 seed = 42
-outputs = "outputs"
+outputs = "outputs_speedrun"
 wandb = True
-epochs = 1000
+epochs = 5
 log_every = 10
-ckpt_every = 200
-#ckpt_every = 100
+ckpt_every = 100
 
 # optimization settings
 load = None
 grad_clip = 1.0
-lr = 0.0001
+lr = 0.00016
 ema_decay = 0.99
 adam_eps = 1e-15
+warmup_steps = 400
+weight_decay = 0.01

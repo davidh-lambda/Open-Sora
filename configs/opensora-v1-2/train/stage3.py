@@ -77,11 +77,11 @@ mask_ratios = {
 
 # Log settings
 seed = 42
-outputs = "outputs"
+outputs = "outputs_speedrun"
 wandb = True
-epochs = 1000
+epochs = 5
 log_every = 10
-ckpt_every = 200
+ckpt_every = 100
 
 # optimization settings
 load = None

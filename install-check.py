@@ -28,7 +28,7 @@ def check_python():
 def check_pytorch():
     print("Checking PyTorch version... ", end="")
     output, error = run_command('python -c "import torch; print(torch.__version__)"')
-    if output and "2.3.0" in output:
+    if output and "2.3.1" in output:
         print("OK")
         return True
     print("FAILED. Found: ", output)
