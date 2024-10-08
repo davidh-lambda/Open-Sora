@@ -178,6 +178,7 @@ dataset/
 runs/
 checkpoints/
 outputs/
+outputs_*/
 outputs
 samples/
 samples
