@@ -23,28 +23,25 @@ We'll be using two primary datasets for our reproduction experiment:
 
 **Dataset Summary**
 
-Dataset | License | Dataset Size | Clip Dimensions | Total Required Disk Space
---------| ------- | ------------ | --------------- | -------------------------
-OpenVid | CC-BY-4.0 | 1M Clips and Captions |  | 7.9TB                    
-MiraData | GPL-3.0 | 330k Clips and Captions |  | 29TB                    
+Dataset | License | Dataset Size | Clip Dimensions | Required Disk Space
+--------| ------- | ------------ | --------------- | -------------------
+OpenVid | CC-BY-4.0 | 1M Clips & Captions | Various Resolutions & Aspect Ratios | 7.9TB                    
+MiraData | GPL-3.0 | 330k Clips & Captions | `1280x720` and `1920x1080`  | 29TB                    
 
 
 ## **Preprocessing the Datasets**
-Both OpenVid and MiraData come with video clips and captions. Therefore, we can skip most of the preprocessing steps outlined in the [Open-Sora data processing guide](https://github.com/hpcaitech/Open-Sora/blob/main/docs/data_processing.md), except for adding missing metadata to the CSV file required for training and filtering out large or unsupported files.
-
+Both OpenVid and MiraData come with video clips and captions. Therefore, we can skip most of the preprocessing steps outlined in the [Open-Sora data processing guide](https://github.com/hpcaitech/Open-Sora/blob/main/docs/data_processing.md). However, we still need to add missing metadata to the CSV file for training purposes and filter out any large or unsupported files.
 
 ### **Required Columns for Training**
-To train using the Open-Sora code base, we will need a CSV file with the following columns:
-`path`, `text`, `num_frames`, `height`, `width`, `aspect_ratio`, `fps`, `resolution`, `file_size`.
+To train using the Open-Sora code base, a CSV file with specific columns is required. The necessary columns are: `path`, `text`, `num_frames`, `height`, `width`, `aspect_ratio`, `fps`, `resolution`, and `file_size`.
 
 But thankfully, there's a script to generate most of these columns from only `path` and `text`.
-So, assuming you have a CSV file (`dataset.csv`{: .filename}) with the columns `path` and `text`, you can add the remaining required columns by running:
+If you have a CSV file (`dataset.csv`{: .filename}) containing the `path` and `text` columns, you can compute the remaining required columns from these two by executing the following command:
 
 ```bash
 python -m tools.datasets.datautil dataset.csv --info --remove-empty-caption
 ```
-This command will run in parallel, will result in a new file called `dataset_info_noempty.csv`{: .filename} with all necessary metadata columns inserted and remove any entries with empty captions.
-
+The command will execute concurrently, generating a new file named `dataset_info_noempty.csv`{: .filename}. This file will contain all the required metadata columns and exclude any entries with empty captions.
 
 ### **Filtering Large Video Clips**
 To optimize training performance, we remove video clips larger than `50MB`, as they are more expensive to load during training.
@@ -80,34 +77,25 @@ The idea of filtering is simple: read each file with ffmpeg, write to a file cal
 3. **Adapt and Run the FFMPEG Check Script on All Nodes**  
    The following script will create `.err` files alongside each video file in `filenames.txt`. An empty `.err` file indicates no errors, while a non-empty file signifies an FFMPEG error with that video.
 
-   TODO: test this command
-   {: .todo}
-
    ```bash
-   paste ~/nodes.txt <(ls part_* | sort) | parallel --colsep '\t' ssh {1} 'bash tools/ffmpeg_check_parallel.sh {2}'
+   paste nodes.txt <(ls ./data_csvs/part_* | sort) | parallel --colsep '\t' ssh -tt {1} "bash $(pwd)/tools/datasets/ffmpeg_check_parallel.sh $(pwd)/{2}"
    ```
 4. **Filter Out Files with FFMPEG Errors**  
    Use the following Python script to filter out video files that have FFMPEG errors:
    ```python
-   python tools/ffmpeg_filter_without_errors.py filenames.txt
+   python -m tools.datasets.ffmpeg_filter_without_errors dataset_info_noempty_le50Mb.txt
    ```
-5. **Construct a New CSV from the List of Working Files**  
-   This will generate a new file excluding the problematic video clips, ensuring a stable training dataset.
 
-   TODO add this script
-   {: .todo}
+   This will generate a new file named `dataset_info_noempty_le50Mb_withouterror.txt`{: .filepath} excluding the problematic video clips, ensuring a stable training dataset.
 
-   ```python
-   TODO
-   ```
 
 ## **Storing the Dataset on Shared Storage**
 
 After preprocessing, we make sure that all compute nodes have access to the preprocessed dataset, store it on a shared storage system accessible by all nodes.
 
 For the remainder of this tutorial, we'll suggest that the filtered CSVs are saved in the training repository as follows:
-- the CSV for OpenVid data under `OpenVid-1M-osora_le50MB.csv`{: .filepath}
-- the combined CSV for OpenVid and MiraData data under `OpenVid-Miradata-mix.csv`{: .filepath}
+- the CSV for OpenVid data under `OpenVid1M.csv`{: .filepath}
+- the combined CSV for OpenVid and MiraData data under `OpenVid1M-Miradata330k.csv`{: .filepath}
 
 > **Important:** Ensure that the shared storage is mounted and accessible from all nodes in your cluster before initiating the training process.
 {: .prompt-tip}

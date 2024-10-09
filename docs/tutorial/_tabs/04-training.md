@@ -8,21 +8,19 @@ toc: true
 
 
 # Get the Ball Rolling
-We'll mostly follow OpenSora 1.2's multi-stage training recipe. The main differecen between the stages are the resolution of the videos the model is trained with.
+We will primarily adhere to the multi-stage training recipe of OpenSora 1.2. The primary distinction between the stages is the resolution of the videos used for training the model.
 
 **Original OpenSora 1.2 training configuration**:  
-In detail, the training stages are constructed as follows:
-1. **Preparation stage** that converts the T2I model's, [PixArt-Σ 2K](https://pixart-alpha.github.io/PixArt-sigma-project/), weights slowly towards the proposed T2V architecture named [STDiT](https://github.com/hpcaitech/Open-Sora/blob/main/docs/report_01.md#efficiency-in-choosing-the-architecture) (short for **S**patio-**T**emporal **Di**ffusion **T**ransformer).
-2. **The first stage** ([link to the config](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage1.py)) mainly focuses on `240p` and `360p` with video length 2s ~ 16s.
-3. **The second stage** ([link to the config](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage2.py)) `360p` and `480p` resolutions.
-4. **The third and last stage** ([link to the config](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage3.py)) focusses on `720p` and `1080p` resolutions. 
-
+In detail, the training stages are defined as follows:
+1. **Preparatory Stage**: This stage gradually adapts the T2I (Text-to-Image) model's weights, specifically from [PixArt-Σ 2K](https://pixart-alpha.github.io/PixArt-sigma-project/), to the proposed T2V (Text-to-Video) architecture known as [STDiT](https://github.com/hpcaitech/Open-Sora/blob/main/docs/report_01.md#efficiency-in-choosing-the-architecture) (an acronym for **S**patio-**T**emporal **Di**ffusion **T**ransformer).
+2. **Stage One** ([link to config file](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage1.py)): The focus here is on `240p` and `360p` video resolutions, with video lengths ranging from 2 to 16 seconds.
+3. **Stage Two** ([link to config file](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage2.py)): This stage emphasizes `360p` and `480p` video resolutions.
+4. **Stage Three** ([link to config file](https://github.com/hpcaitech/Open-Sora/blob/main/configs/opensora-v1-2/train/stage3.py)): The final stage concentrates on `720p` and `1080p` video resolutions.
 
 
 ## Speed Run Configuration
-Unfortunately, neither config, nor exact commits exists for the conversion process used to convert Pixart-Σ 2K to STDiT. While the team describes the process in their own [report notes](https://github.com/hpcaitech/Open-Sora/blob/476b6dc79720e5d9ddfb3cd589680b2308871926/docs/report_03.md#rectified-flow-and-model-adaptation) we will use a simpler approach. Compared to Open-Sora's 35k H100 GPU hour training run (excluding the training time used for converting the weights), we'll train for about half the time and omit the preparation stage to check what the model is capable of when trained within this lower budget.
-After that, we'll add another 7K GPU hours on new data, to check if the model performence increases.
-We'll also share intermediate and final results for our runs and discuss the two setups that we've tested. 
+The conversion process used to transform Pixart-Σ 2K weights to STDiT weights lacks both a config and specific commits to reproduce the original results. Although the team outlines the process in their [report notes](https://github.com/hpcaitech/Open-Sora/blob/476b6dc79720e5d9ddfb3cd589680b2308871926/docs/report_03.md#rectified-flow-and-model-adaptation), we will adopt a simpler approach.
+Instead of Open-Sora's 35k H100 GPU hour training run (not counting the weight conversion training time), our approach involves training for approximately half that duration and skipping the preparation stage to assess the model's capabilities within this reduced budget. Subsequently, we will invest an additional 7K GPU hours on fresh data to evaluate whether the model's performance improves. Furthermore, we will disclose the intermediate and final outcomes of our runs and examine the two configurations we have experimented with.
 
 
 
@@ -59,6 +57,8 @@ scripts/train.py configs/opensora-v1-2/lambda/stage1.py \
 
 TODO: describe what happens in more detail
 {: .todo}
+
+miradata from stage 3
 
 TODO: example of clips generated from validation prompts over the course of training.
 {: .todo}
@@ -104,6 +104,7 @@ scripts/train.py configs/opensora-v1-2/lambda/stage3.py \
 ### Additional 7k GPU Hours of Training
 
 TODO: describe what happens in more detail
+- no masking
 {: .todo}
 
 TODO: example of clips generated from validation prompts over the course of training.

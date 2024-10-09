@@ -6,56 +6,61 @@ date: 2024-10-02
 toc: true
 ---
 
-# **Clone**, **Install** & **Set Up** Your Cluster
+# Clone, Install & Set Up Your Cluster
 
-In this section, we'll guide you through the essential steps to set up your environment for training the Open-Sora 1.2 model. This includes preparing a shared folder, installing Miniconda across all nodes, cloning the necessary codebase, and ensuring that all nodes have access to required files - and most importantly - the same environments. (Any discrepancies can lead to hard-to-diagnose bugs during training.)
-
+You will learn how to create a shared folder, install Miniconda on all nodes, clone the required codebase, and verify that all nodes have access to the necessary files and consistent environments - and most importantly - to ensure uniformity across all nodes, as inconsistencies can result in challenging-to-identify bugs during the training process.
 
 ## **Using a Shared Folder**
 > **Note:** Make sure to use a shared folder that is accessible by all nodes in your cluster. Alternatively, ensure that the environment is identical across the entire cluster **after installing all dependencies** to avoid potential issues.
 {: .prompt-tip }
 
-To start, it's crucial to have a shared folder that's accessible to all nodes in your cluster. This ensures consistency and prevents hard-to-find bugs caused by environmental differences across nodes.
+First, it is essential to create a shared folder that can be accessed by all nodes within your cluster. This ensures uniformity and eliminates potential issues arising from discrepancies in the environments of different nodes.
 
-This tutorial will assume you have a shared folder across your cluster.
-Let's set it's path:
+This tutorial will proceed under the assumption that you have established a shared folder accessible throughout your cluster.
+Now, let's define the variable for this shared folder:
 ```bash
 export SHAREDDIR=./shared/folder/path
 ```
 
 
 ## **Compiling a List of Cluster Nodes**
-First compile a list of all nodes in your cluster and save it in a convenient location, such as `~/nodes.txt`{: .filepath}. This file will be used for executing commands across all nodes efficiently.
+To begin, create a list of all the nodes in your cluster and store it in an easily accessible location, like `~/nodes.txt`{: .filepath}. This file defines which of the nodes will be used in parallel execution and parallel training processes.
 
-Create `nodes.txt`{: .filepath} containing the names of all nodes that you want to use:
+Create a file named `nodes.txt`{: .filepath} containing the SSH host names of all nodes to be used:
 ```bash
 node-001
 node-002
 node-003
 ...
 ```
-(Of course, replace `node-001`, `node-002`, etc., with the actual hostnames or IP addresses of your cluster nodes.)
+(Of course, replace the placeholders `node-001`, `node-002`, and so on, with the specific hostnames or IP addresses that correspond to the nodes in your cluster.)
 
-> **Note:** Ensure that you have SSH access configured for all nodes to execute remote commands.
+
+**Important:** Make sure that the starting node for training is listed as **the first entry** in the text file to avoid potential errors during the initiation of multi-node training.
 {: .prompt-tip}
+
+**Note:** Confirm that SSH access is set up for all nodes to allow the execution of remote commands.
+{: .prompt-tip}
+
+
 
 ## **Installing Miniconda Across All Nodes**
 
-Miniconda is a minimal installer for Conda, which is an open-source package management system and environment management system. We'll install Miniconda to manage Python environments and dependencies such as CUDA and NCCL. Afterwards, we'll ensure that all nodes have access to the exact same environment.
+Miniconda is a minimal installer for Conda, which is an open-source package management system and environment management system. By installing Miniconda, we can efficiently manage Python environments and dependencies like CUDA and NCCL. Following the installation, we will make sure that every node has access to the identical environment.
 
 1. **First, we'll install Miniconda3 on a single node:**
-    1. **Install Miniconda3 to the shared folder**, for example, `$SHAREDDIR/miniconda3/`.  
-       You can download the installer using the following command:
-       ```bash
-       wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O $SHAREDDIR/miniconda.sh
-       ```
+    1. **Install Miniconda3 in the shared folder**, for example, `$SHAREDDIR/miniconda3/`.  
+      To download the installer, use the following command:
+      ```bash
+      wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O $SHAREDDIR/miniconda.sh
+      ```
     2. **Run the installer**.  
-       (This will install Miniconda3 in the shared directory `$SHAREDDIR/miniconda3`).
+      The following installation command will install Miniconda3 in the shared directory `$SHAREDDIR/miniconda3`.
        ```bash
        bash $SHAREDDIR/miniconda.sh -b -p $SHAREDDIR/miniconda3
        ```
 3. **Initializing Conda on All Nodes**  
-    After installation of miniconda, you'll need to append the Conda initialization snippet to the `.bashrc` file on all nodes. This ensures that the Conda environment is properly set up whenever you log in.
+    Once you have installed miniconda, it is necessary to add the Conda initialization snippet to the `.bashrc` file on each node. This step guarantees that the Conda environment is correctly configured every time you log in.
 
     1. **Create a file `$SHAREDDIR/conda_init.sh` using the following command:**
        ```bash
@@ -81,14 +86,14 @@ Miniconda is a minimal installer for Conda, which is an open-source package mana
        ```bash
        parallel -a ~/nodes.txt ssh {} 'cat $SHAREDDIR/conda_init.sh >> ~/.bashrc'
        ```
-       (This command reads the list of nodes from `~/nodes.txt` and executes the `cat` command on each node to append `conda_init.sh` to `~/.bashrc`.)
-    3. **Ensure that the Conda environment is available on all nodes:**
+       This command reads the list of nodes from `~/nodes.txt` and appends `conda_init.sh` to `~/.bashrc` on each node using `cat`.
+    3. **Verify the availability of the Conda environment on all nodes**
       ```bash
       parallel -a ~/nodes.txt ssh {} 'source ~/.bashrc && command -v conda >/dev/null 2>&1 && echo "{}: Conda is installed" || echo "{}: Conda is NOT installed"'
       ```
-4. **Ensure Only Conda's Python Libraries Are Used**
+4. (Optional) **Ensure Only Conda's Python Libraries Are Used**
 
-    To prevent Python from inadvertently importing packages from `~/.local/python`, it's essential to disable user site-packages. This ensures that only the libraries managed by Conda are used during execution.
+    To prevent Python from inadvertently importing packages from `~/.local/python`, it's best to disable user site-packages. This ensures that only the libraries managed by Conda are used during execution.
 
     **Export the `PYTHONNOUSERSITE` Environment Variable**
 
@@ -110,7 +115,7 @@ Miniconda is a minimal installer for Conda, which is an open-source package mana
 
 
 ## **Cloning and Configuring the Codebase**
-We'll now clone [our fork of the Open-Sora repository](https://github.com/LambdaLabsML/Open-Sora).
+Next, clone the tutorial's Open-Sora fork: [https://github.com/LambdaLabsML/Open-Sora].
 
 1. **Clone the Repository**
    ```bash
@@ -121,21 +126,25 @@ We'll now clone [our fork of the Open-Sora repository](https://github.com/Lambda
    cd Open-Sora
    ```
 3. **Run the Installation Script**  
-   The installation script will handle the entire setup process, including creating the Conda environment and installing all necessary dependencies. Run the [installation script](https://github.com/LambdaLabsML/Open-Sora/blob/main/install.sh):
+   To set up the environment and install the required dependencies, simply execute the [installation script](https://github.com/LambdaLabsML/Open-Sora/blob/main/install.sh). This script will create a Conda environment and handle the entire installation process for you.
+
+   > **Note:** The installer comes in two versions: `install.sh`, which uses PyTorch 2.2 (the version used by Open-Sora), and `install-pytorch23.sh`, which uses PyTorch 2.3 (requiring a bit more work). We suggest using the PyTorch 2.2 version unless you encounter problems, such as issues with the NCCL version, in which case you can switch to PyTorch 2.3.
+   {: .prompt-tip}
+
+   This process may take some time. Feel free to grab a coffee while you wait or read what it does [below](#installation-details)!
    ```bash
-   bash install.sh
+   yes | bash install.sh
    ```
 
-   > **Note:** This process may take some time. Feel free to grab a coffee while you wait or read what it does [below](#installation-details)!
-   Click here to read more about the details of the installation process.
    {: .prompt-tip}
 4. **Activating the Conda Environment**  
-   After the installation completes, activate the new Conda environment `osora-12`:
+   After the installation completes, activate the newly created Conda environment `osora-12`:
    ```bash
    conda activate osora-12
    ```
 5. **Verifying the Installation**  
-   To confirm that everything is set up correctly, run the [installation checker](https://github.com/LambdaLabsML/Open-Sora/blob/main/install-check.py):
+   To confirm that everything is set up correctly, run the [installation checker](https://github.com/LambdaLabsML/Open-Sora/blob/main/install-check.py):  
+   (Use `install-check-pytorch23`{: .filepath} in case you have chosen PyTorch2.3)
 
    ```bash
    python install-check.py
@@ -159,10 +168,9 @@ We'll now clone [our fork of the Open-Sora repository](https://github.com/Lambda
 
 
 ### **Installation Details**
-TODO: either change to torch 2.2 and simplify or check if this is reproducable and adapt the install-checker.
-{: .todo}
 
-**Optional:** The following details provide additional insights into what the installation script does. You can skip this section if you're not interested in the specifics.
+**Optional Section:** The information below offers further details about the processes carried out by the installation script. If you do not wish to delve into these specifics, feel free to move on to the next section.
+
 
 {% details Click here to read more details about the installation script. %}
 
@@ -170,23 +178,24 @@ TODO: either change to torch 2.2 and simplify or check if this is reproducable a
   The script creates a new Conda environment named `osora-12`.
 - **Installing CUDA Dependencies**  
   CUDA dependencies are installed via the [NVIDIA channel](https://anaconda.org/nvidia/cudatoolkit), all fixed to version 12.1 to ensure compatibility.
-- **Compiling and Installing NCCL**  
+- **Compiling and Installing NCCL** (only the PyTorch 2.3 installer)  
   NCCL (version 2.20.5-1) is compiled and installed. This version has been tested and works well in our setup.
-- **Installing PyTorch 2.3.1**  
-  PyTorch 2.3.1 is installed. This version allows dynamic linking of NCCL, enabling you to test other NCCL versions without reinstalling PyTorch.
+- **Installing PyTorch**  
+  PyTorch 2.2 or 2.3.1 is installed depending on the installation script used. PyTorch 2.3.1 allows dynamic linking of NCCL, enabling you to test other NCCL versions without recompiling PyTorch.
 - **Installing xFormers**  
   [xFormers](https://github.com/facebookresearch/xformers) version 0.0.26 is installed. This package provides efficient Transformer building blocks and is compiled against PyTorch.
 - **Installing FlashAttention**  
   [FlashAttention](https://github.com/HazyResearch/flash-attention) version 2.5.8 is installed. It's an efficient attention implementation that speeds up Transformer models, also compiled against the specific PyTorch version.
+- **Installing Apex**  
+  [Apex](https://github.com/NVIDIA/apex.git) is installed. This PyTorch extension contains tools for mixed precision and distributed training, also compiled against the specific PyTorch version.
 - **Installing Other Dependencies**  
   - **ColossalAI**  
-    [ColossalAI](https://github.com/hpcaitech/ColossalAI) is installed from a custom branch that works with PyTorch 2.3. This package provides a unified interface for large-scale model training, also compiled against the specific PyTorch version.
+    [ColossalAI](https://github.com/hpcaitech/ColossalAI) package provides a unified interface for large-scale model training, also compiled against the specific PyTorch version. It is installed from a custom branch that works with PyTorch 2.3 if the `install-pytorch23.sh` Installer is used
   - **Diffusers**  
     [Diffusers](https://github.com/huggingface/diffusers) is installed, which is a dependency of ColossalAI. This package offers tools for diffusion models.
-  - **Bug Fixes**  
-    - **YAPF Package Bugfix**
-    - **Protobuf Package Bugfix**
-    These fixes ensure compatibility and prevent common issues during installation.
+- Small **Bug Fixes**  
+   - **YAPF Package** version pinning. (Due to a bug with the Open-Sora code with a later version)
+   - **Protobuf Package** version pinning. (Due to a bug with the Open-Sora code with a later version)
 {% enddetails %}
 
 
@@ -252,22 +261,12 @@ Ensuring that all nodes in your cluster have access to the necessary files and e
    {: .prompt-tip}
 3. **Verify wandb Initialization**
 
-   You can verify that wandb is set up correctly by running a simple script that logs a test metric.
-
-   ```python
-   import wandb
-
-   wandb.init(project="open-sora-test")
-   wandb.log({"test_metric": 1})
-   ```
-
-   Save this script as `wandb_test.py` and run it on all nodes:
-
+   You can verify that wandb is set up correctly on all nodes by running the following command:
    ```bash
-   parallel -a ~/nodes.txt ssh {} 'python wandb_test.py'
+   parallel -a ~/nodes.txt ssh {} 'python -c "import wandb; wandb.init(project="open-sora-test"); wandb.log({"test_metric": 1})"'
    ```
 
-   Check your wandb dashboard to see if the test runs have been logged.
+   Check your wandb dashboard to see if the test runs have been logged for all nodes.
 
 
 <br/>
