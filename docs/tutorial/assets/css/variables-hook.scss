@@ -1,5 +1,3 @@
-@import 'colors/typography-light';
-@import 'colors/typography-dark';
-
-
-.todo { background: yellow ;}; 
+/*
+  Appending custom SCSS variables will override the default ones in `_sass/addon/variables.scsss`
+*/
