@@ -55,13 +55,7 @@ Training on a larger scale comes with its own set of challenges. Here's what we 
 - **Monitoring Cluster Health**: Large-scale distributed training often faces the challenge of downtime, which can be both experienced and should be carefully tracked during the process.
 
 
-### [**Post-Hoc Methods** — Enhancing the Model Quality After Training](../05-post-hoc)
-Once the training phase is complete, we will delve into simple techniques for improving the model's performance, such as increased inference time and the application of LoRA (Low-Rank Adaptation).
-- **Inference Parameterrs**: Built-in ways to improve the Quality.
-- **Implementing LoRA**: Learn the steps to apply Low-Rank Adaptation for fine-tuning your Open-Sora model.
-
-
-### [**Troubleshooting & Common Issues**](../06-troubleshooting)
+### [**Lessons Learned**](../05-lessons)
 Finally, we'll address common problems you might encounter and their solutions.
 - **Resolving Model Convergence Problems**: Learn how to tackle issues when your model does not converge as anticipated.
 - **Overcoming Cluster-Related Obstacles**: Obtain advice on handling the intricacies of training on a cluster.

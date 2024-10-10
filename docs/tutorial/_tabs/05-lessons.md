@@ -1,7 +1,7 @@
 ---
 layout: post
 icon: fas fa-exclamation-triangle
-title: Troubleshooting
+title: Lessons Learned
 date: 2024-10-02
 toc: true
 ---
