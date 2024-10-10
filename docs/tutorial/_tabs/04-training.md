@@ -450,11 +450,10 @@ By exploring these experiences, you'll be better prepared to address similar cha
 
 
 <script>
-  // Function to handle iframe loading
   function loadIframe(buttonId, iframeId) {
     const button = document.getElementById(buttonId);
     const iframe = document.getElementById(iframeId);
-    const link = button.querySelector('a'); // Get the link inside the button
+    const link = button.querySelector('a');
 
     button.addEventListener('click', function() {
       iframe.src = link.getAttribute('href');
@@ -462,24 +461,20 @@ By exploring these experiences, you'll be better prepared to address similar cha
       button.style.display = 'none';
     });
   }
-
-  // Function to disable links when JavaScript is enabled
   function disableLinks(buttonId) {
     const button = document.getElementById(buttonId);
     const link = button.querySelector('a');
     
     if (link) {
-      link.style.pointerEvents = 'none';  // Disable the link
-      link.style.color = 'inherit';       // Optional: Make the text look like regular text
-      link.style.textDecoration = 'none'; // Remove the underline
+      link.style.pointerEvents = 'none';
+      link.style.color = 'inherit';
+      link.style.textDecoration = 'none';
     }
   }
 
   for (let i = 1; i <= 7; i++) {
     const buttonId = `iframe${i}-button`;
     const iframeId = `iframe${i}`;
-
-    // Apply the functions to each iframe and button
     loadIframe(buttonId, iframeId);
     disableLinks(buttonId);
   }
