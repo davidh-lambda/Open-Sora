@@ -457,7 +457,7 @@ By exploring these experiences, you'll be better prepared to address similar cha
 
     button.addEventListener('click', function() {
       iframe.src = link.getAttribute('href');
-      iframe.style.height = '1200px';
+      iframe.style.height = '1700px';
       button.style.display = 'none';
     });
   }
