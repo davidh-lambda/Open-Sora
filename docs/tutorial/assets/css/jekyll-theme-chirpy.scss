@@ -1,12 +1,7 @@
 ---
 ---
-.todo { background: blue ;}; 
 
-@import 'main
-{%- if jekyll.environment == 'production' -%}
-  .bundle
-{%- endif -%}
-';
+@import 'main.scss';
 
 /* append your custom style below */
-.todo { background: yellow ;}; 
+.todo { background: red ;}; 
