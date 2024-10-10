@@ -55,7 +55,7 @@ OMP_NUM_THREADS=16 \
 colossalai run --nproc_per_node 8 \
 --hostfile nodes.txt \
 scripts/train.py configs/opensora-v1-2/lambda/stage1.py \
---data-path OpenVid-1M.csv \
+--data-path OpenVid1M.csv \
 --ckpt-path pretrained_models/PixArt-Sigma-XL-2-2K-MS.pth
 ```
 
@@ -140,7 +140,7 @@ Read the details below on how to start the inference server and log into the sam
 With our initial budget, we aim to replicate the core aspects of Open-Sora's training recipe at about half the training time of the original model.  
 Let's start training with the first part, the **18k GPU hour run**, with only minor adjustments:
 **Key Changes to the Original Three Stages**
-- **Dataset**: We start training with **OpenVid-1M**.
+- **Dataset**: We start training with **OpenVid1M**.
 - **Weight Decay**: Adapted weight decay to `0.01`.
 - **Warmup Steps**: Shortened learning rate warmup to 400 steps.
 - **Epochs**: We train for 5 epochs per stage (adjust the config if needed).
@@ -156,7 +156,7 @@ Let's start training with the first part, the **18k GPU hour run**, with only mi
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage1.py \
-    --data-path OpenVid-1M.csv \
+    --data-path OpenVid1M.csv \
     --ckpt-path pretrained_models/PixArt-Sigma-XL-2-2K-MS.pth
     ```
 
@@ -189,7 +189,7 @@ TODO: share checkpoints after every stage?
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage2.py \
-    --data-path OpenVid-1M.csv \
+    --data-path OpenVid1M.csv \
     --ckpt-path ./outputs_speedrun/008-STDiT3-XL-2/epoch4-global_step2210/
     ```
 
@@ -219,7 +219,7 @@ TODO: share checkpoints after every stage?
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage3.py \
-    --data-path OpenVid-Miradata.csv \
+    --data-path OpenVid1M-MiraData330k.csv \
     --ckpt-path ./outputs_speedrun/009-STDiT3-XL-2/epoch4-global_step7099
     ```
 
@@ -256,7 +256,7 @@ In this phase, we decided to experiment with several key modifications to explor
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage4.py \
-    --data-path OpenVid-Miradata.csv \
+    --data-path OpenVid1M-MiraData330k.csv \
     --ckpt-path ./outputs_speedrun/010-STDiT3-XL-2/epoch4-global_step14778
     ```
 
@@ -287,7 +287,7 @@ In this phase, we decided to experiment with several key modifications to explor
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage5.py \
-    --data-path OpenVid-Miradata.csv \
+    --data-path OpenVid1M-MiraData330k.csv \
     --ckpt-path ./outputs_speedrun/012-STDiT3-XL-2/epoch3-global_step2100
     ```
 
@@ -320,7 +320,7 @@ In this phase, we decided to experiment with several key modifications to explor
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile nodes.txt \
     scripts/train.py configs/opensora-v1-2/lambda/stage6.py \
-    --data-path OpenVid-Miradata.csv \
+    --data-path OpenVid1M-MiraData330k.csv \
     --ckpt-path ./outputs_speedrun/013-STDiT3-XL-2/epoch1-global_step3300
     ```
 
@@ -351,7 +351,7 @@ In this phase, we decided to experiment with several key modifications to explor
     NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 NCCL_IB_PCI_RELAXED_ORDERING=1 NCCL_SOCKET_IFNAME=eno1 NCCL_DEBUG=WARN TORCH_NCCL_ASYNC_ERROR_HANDLING=1 TORCH_NCCL_ENABLE_MONITORING=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=16 colossalai run --nproc_per_node 8 \
     --hostfile hostfile_calvin_31 \
     scripts/train.py configs/opensora-v1-2/train/stage7.py \
-    --data-path OpenVid-Miradata.csv \
+    --data-path OpenVid1M-MiraData330k.csv \
     --ckpt-path ./outputs_speedrun/015-STDiT3-XL-2/epoch0-global_step2900
     ```
 
