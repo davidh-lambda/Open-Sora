@@ -103,7 +103,7 @@ Miniconda is a minimal installer for Conda, which is an open-source package mana
     export PYTHONNOUSERSITE=True
     ```
 
-    > **Important:** Setting `PYTHONNOUSERSITE=True` ensures that Python does not consider the user-specific site-packages directory (`~/.local/lib/pythonX.Y/site-packages`) when importing modules. This helps maintain a clean and predictable Python environment, preventing conflicts with Conda-managed packages. (Bugs are especially hard to find, if all but only a few nodes use the conda environment, while some nodes use different versions that have been installed locally.)
+    > **Important:** Setting `PYTHONNOUSERSITE=True` ensures that Python does not consider the user-specific site-packages directory (such as `~/.local/lib/pythonX.Y/site-packages`) when importing modules. This helps maintain a clean and predictable Python environment, preventing conflicts with Conda-managed packages. (Bugs are especially hard to find, if all but only a few nodes use the conda environment, while some nodes use different versions that have been installed locally.)
     {: .prompt-tip}
 
     You can append this line to all nodes using the following command:
