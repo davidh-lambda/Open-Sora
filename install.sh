@@ -1,7 +1,7 @@
 #!/bin/bash
 # Description: Setup Open-Sora Environment
 
-ENV_NAME="osora-12"
+ENV_NAME="osora-12-test6"
 PYTHON_VER="python=3.10"
 export MAX_JOBS=$(nproc) && echo "MAX_JOBS set to $MAX_JOBS"
 CONDA_HOME=$(conda info --base)
@@ -59,14 +59,14 @@ conda install -n $ENV_NAME -c nvidia cuda-toolkit=12.1.0 \
 set_cuda_home
 
 # Install PyTorch for CUDA 12.1.0
-conda install -n $ENV_NAME pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=12.1 -c pytorch -c nvidia -y
+conda install -n $ENV_NAME pytorch==2.2.2 torchvision==0.17.2 pytorch-cuda=12.1 -c pytorch -c nvidia -y
 
 # Optional installations
 conda_pip install --force packaging
 conda_pip install --force ninja
-LD_PRELOAD=$(gcc -print-file-name=libstdc++.so.6) TORCH_CUDA_ARCH_LIST=9.0 PATH="$CUDA_HOME/bin:$PATH" LD_LIBRARY_PATH="$CUDA_HOME/lib" conda_pip install --force --no-deps -U xformers --index-url https://download.pytorch.org/whl/cu121
+LD_PRELOAD=$(gcc -print-file-name=libstdc++.so.6) TORCH_CUDA_ARCH_LIST=9.0 PATH="$CUDA_HOME/bin:$PATH" LD_LIBRARY_PATH="$CUDA_HOME/lib" conda_pip install --force --no-deps -U xformers==0.0.27.post2 --index-url https://download.pytorch.org/whl/cu121
 conda_pip install --force -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings '--build-option=--cpp_ext' --config-settings '--build-option=--cuda_ext' git+https://github.com/NVIDIA/apex.git
-FLASH_ATTN_WHEEL=flash_attn-2.5.8+cu122torch2.3cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+FLASH_ATTN_WHEEL=flash_attn-2.5.8+cu122torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.8/$FLASH_ATTN_WHEEL
 conda_pip install $FLASH_ATTN_WHEEL
 rm $FLASH_ATTN_WHEEL
