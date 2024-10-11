@@ -82,6 +82,70 @@ After some investigation, we realized that the issue was caused by clock synchro
 
 The solution was to address the clock synchronization issues by switching the NTP client to Chrony on the cluster head node. This change resolved the hangs caused by NCCL.
 
+
+## Monitoring Model Quality
+
+While tracking loss curves in [Weights & Biases](https://wandb.com) provides valuable insights during training, the loss values often plateau after the initial few epochs. This makes it essential to evaluate the model beyond numerical metrics by assessing the quality of videos generated from a set of validation prompts. To do this, we need to run the most recent model weights in inference mode regularly.
+
+However, running inference on a Text-to-Video (T2V) model is computationally expensive. For example, generating videos at 720p resolution, 4 seconds in duration, with a batch size of 2 can takes already X minutes on a H100 — we don't want the entire cluster to idle while waiting for some nodes to finish evaluation!
+
+To address this, we set up a separate, smaller server to handle inference asynchronously. This allows the main training process to continue uninterrupted, maximizing our computational resources. The inference server runs the latest model checkpoints, generates sample videos, and saves the outputs to the same Weights & Biase runs that training is logging to, as you've seen in the result sections above.
+
+
+### Setting Up the Inference Server
+
+> **Note:** Setting up the inference server requires that the codebase and environment are properly configured.  Setting up an inference server is something we learned to be highly valuable during our training process. We recommend revisiting this section after you've followed the instructions in the (next) [Setup](../setup.md) section.
+{: .prompt-tip}
+
+The inference server in this repository is designed to work asynchronously and supports several modes. Here's how you can set it up:
+1. **Synchronize Checkpoints**  
+   First, we need to synchronize the latest checkpoints from the training cluster to the inference server. If you don't have acccess to your shared storage on this dedicated inference machine, you can use `rsync` for this purpose to query the checkpoints regularly.
+
+   ```bash
+   watch -n 100 rsync -avzruP --exclude='*/optimizer' training-cluster:/path/to/your/training/outputs/* .
+   ```
+
+   This command runs every 100 seconds and synchronizes new checkpoints, excluding optimizer states to save bandwidth and storage.
+2. **Initialize the Node & Log In into W&B**:  
+    Ensure that both W&B and Open-Sora are properly initialized and functioning on this node. If the node is not included in the cluster where you have previously completed the setup, please refer to the instructions provided in the [Setup](../setup.md) section.
+3. **Run the Inference Server**  
+   Next, we start the inference server using the desired preset and experiment numbers:
+
+   ```bash
+   python scripts/inference-server.py --preset low4s --expnums 656
+   ```
+
+   - `--preset`: Specifies the inference settings. Available options include `low4s`, `high4s`, and `low16s`, which correspond to different resolutions and durations.
+   - `--expnums`: Specifies the experiment numbers or checkpoint directories to monitor and execute inference on. The experiment number is used to automatically extract the W&B run-id, enabling the inference server to identify the location to push the results to.
+
+   You can explore additional options and features by running:
+
+   ```bash
+   python scripts/inference-server.py --help
+   ```
+
+   For instance, you can run a second server that computes the `720p` results.
+   ```bash
+   python scripts/inference-server.py --preset high4s --expnums 656
+   ```
+
+By setting up the inference server this way, we can continuously monitor the model`s output quality without interrupting the training process. This approach ensures that our valuable training resources remain focused on model optimization, while inference and evaluation happen in parallel.
+
+
+
+
+## Monitoring Cluster Health
+
+While your training is running, it's crucial to keep an eye on the health of your cluster. We use an internal tool to monitor cluster performance, regularly checking for any signs of degrading performance. This tool logs metrics such as power draw across the entire cluster and InfiniBand or Ethernet speeds.
+
+As highlighted in [the LLama 3 Paper](https://arxiv.org/abs/2407.21783), large-scale distributed training can often face downtime. We too experienced this firsthand during our training runs. If you're interested in learning more about what we learned when our training failed recurrently, be sure to check out the [Lessons](../lessons.md) Section later in this tutorial.
+
+
+add screenshots if possible
+{: .todo}
+
+
+
 <br/>
 
 ---

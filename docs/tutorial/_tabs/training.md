@@ -28,8 +28,6 @@ Unfortunately, the conversion process used to transform Pixart-Σ 2K weights to 
 ## Speed Run
 Instead of Open-Sora's 35k H100 GPU hour training run (not counting the weight conversion training time), our approach for this tutorial involves training for approximately half that duration and skipping the preparation stage. We aim to assess the model's capabilities within this reduced budget. Subsequently, we'll invest an additional 7k GPU hours to evaluate whether the model's performance improves. We'll share the intermediate and final outcomes of our runs and examine the two configurations we've experimented with.
 
-
-
 ### Configuration
 For our training setup, we utilized a cluster of 192 H100 GPUs, aiming to closely follow Open-Sora's original approach across the three training stages. However, we made some key adjustments to adapt to our specific requirements.
 
@@ -37,15 +35,14 @@ Firstly, we modified the learning rate to counter the increased batch size, whic
 
 Additionally, we incorporated weight decay into our training, setting it to a relatively high value of 0.01 based on recommendations from [this paper](https://arxiv.org/abs/2407.15811). This adjustment was made after noticing that adding weight decay led to more significant changes when the model seemed stuck in local minima.
 
-
 Our tutorial, aiming to mimic a typical research-oriented foundation model training, involves two main parts: a base-line model and then tests to further improve the quality.
 - **18k GPU hour run**: Using only small changes to the original three stages that we're confident will improve training (like weight decay adaptation). Since this base-line training is using only half of Open-Sora's training time, and we're basically training from scratch, as the weights aren't converted "correctly" from PixArt to STDiT, we don't expect great results yet here.
 - **Additional 7k GPU hour run**: To further improve performance of the base model, we tested a different learning rate schedule with a small "warmup bump" to allow for more drastic changes at the start of training, and re-apply the same three-stage training recipe as before to see if training longer (and reiterating on lower resolutions again) improves training. We remove masking here. While masking increases training performance, it has an exponential negative impact on output quality, as noted in [this paper](https://arxiv.org/abs/2407.15811). We'll see if their observation holds up and the quality increases faster with masking turned off.
 
 
-### Commands and Helpers 
+## Commands and Helpers 
 
-#### Training Command
+### Training Command
 Here's how a typical training command looks:
 ```
 NCCL_P2P_LEVEL=NVL NCCL_NET_GDR_LEVEL=PIX NCCL_IB_HCA==mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8 \
@@ -60,15 +57,23 @@ scripts/train.py configs/opensora-v1-2/lambda/stage1.py \
 --ckpt-path pretrained_models/PixArt-Sigma-XL-2-2K-MS.pth
 ```
 
-TODO: remove NCCL settings or explain?  
-TODO: do the same for the other commands below  
-TODO: calculate OMP_NUM_THREADS automatically? `OMP_NUM_THREADS=$(( $(nproc --all) / 8 ))`  
-{: .todo}
-
 **Breaking Down the Command**
 - **Environment Variables**:
+    - `NCCL_P2P_LEVEL=NVL`: Enables peer-to-peer communication over NVLink when available, which can improve communication performance between GPUs on the same node.
+    - `NCCL_NET_GDR_LEVEL=PIX`: Enables GPU Direct RDMA (GDR) over PCIe, enhancing inter-node communication performance, especially when using InfiniBand networks.
+    - `NCCL_IB_HCA=mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8`: Specifies the list of InfiniBand Host Channel Adapters (HCAs) to be used by NCCL for communication. Adjust this according to your cluster's hardware configuration.
+    - `NCCL_IB_PCI_RELAXED_ORDERING=1`: Enables relaxed ordering on PCIe for InfiniBand devices, which can improve performance in some scenarios.
+    - `NCCL_SOCKET_IFNAME=eno1`: Specifies the network interface to be used for socket-based communication. Replace `eno1` with your network interface name.
+    - `NCCL_DEBUG=WARN`: Sets the level of NCCL debug output. `WARN` will report warnings and errors.
+    - `TORCH_NCCL_ASYNC_ERROR_HANDLING=1`: Enables asynchronous error handling in NCCL when using PyTorch. This helps catch errors in NCCL operations without causing the program to hang.
+    - `TORCH_NCCL_ENABLE_MONITORING=1`: Enables NCCL monitoring in PyTorch for better debugging and error reporting.
     - `TOKENIZERS_PARALLELISM=false`: Disables parallelism in tokenizers to prevent potential deadlocks.
-    - `OMP_NUM_THREADS=16`: Sets the number of OpenMP threads to use, which can improve performance by limiting the number of threads per process.
+    - `TOKENIZERS_PARALLELISM=false`: Disables parallelism in tokenizers to prevent potential deadlocks.
+    - `OMP_NUM_THREADS=16`: Sets the number of OpenMP threads to use. This can improve performance by limiting the number of threads per process. You can calculate this automatically based on your system's available CPU cores. For example:
+      ```
+      OMP_NUM_THREADS=$(( $(nproc --all) / 8 ))
+      ```
+      This divides the total number of CPU cores by the number of GPUs per node (in this case, 8).
 - **Colossal-AI Command**:
     - `colossalai run`: Command to run the training script with [Colossal-AI's distributed training](https://colossalai.org/docs/concepts/colossalai_overview), essentially a wrapper around `torch.distributed` with improved parallelization and memory management.
     - `--nproc_per_node 8`: Specifies the number of processes (GPUs) to run per node. Adjust this according to your cluster's configuration.
@@ -84,7 +89,7 @@ TODO: calculate OMP_NUM_THREADS automatically? `OMP_NUM_THREADS=$(( $(nproc --al
     - `--load` with `--start-from-scratch`: This re-initializes the data loader while resuming the model, optimizer and scheduler states. Use this if you want to keep the optimizer state but have applied changes to the dataset or number of nodes. 
 
 
-#### Managing Jobs on Bare Metal
+### Managing Jobs on Bare Metal
 When training on a bare-metal cluster, it's essential to manage jobs effectively.
 
 - **Check Running GPU Processes Before Starting Training**:  
@@ -131,14 +136,14 @@ When training on a bare-metal cluster, it's essential to manage jobs effectively
 
 
 
-#### Launching the Inference Server
+### Launching the Inference Server
 To effectively monitor a diffusion model during training, it is essential inspect the model quality recurrently. We recommend assessing the model's performance on a separate machine. While typical training scripts perform evaluation concurrently with training, such as every few hundred steps, it is more practical to delegate this task to a dedicated process for Text-to-Video (T2V) models. This approach ensures that the relatively slow evaluation process does not hinder the training progress of the whole cluster.
 Read the details below on how to start the inference server and log into the same Weights & Biases (W&B) run.
 
 
 
 
-### 18k Hour Training
+## 18k Hour Training
 With our initial budget, we aim to replicate the core aspects of Open-Sora's training recipe at about half the training time of the original model.  
 Let's start training with the first part, the **18k GPU hour run**, with only minor adjustments:
 **Key Changes to the Original Three Stages**
@@ -148,7 +153,7 @@ Let's start training with the first part, the **18k GPU hour run**, with only mi
 - **Epochs**: We train for 5 epochs per stage (adjust the config if needed).
 
 
-#### Stage 1
+### Stage 1
 - **Config**: [`lambda/stage1.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage1.py)
 - **Details**: 5 epochs, mainly on lower resolutions.
     - We load PixArt Sigma weights here. Note that we didn't apply model conversion training (Stage 0), so only the spatial parts of the model are pre-trained and the temporal branches are initialized randomly. However, since the overall structure of the model is similar, we still use the pre-trained weights from the T2I model.
@@ -162,12 +167,8 @@ Let's start training with the first part, the **18k GPU hour run**, with only mi
     --ckpt-path pretrained_models/PixArt-Sigma-XL-2-2K-MS.pth
     ```
 
-TODO: share checkpoints after every stage?
-{: .todo}
 
 **Results**
-
-
 <div id="iframe1-button" style="width: 100%; height: 150px; background-color: #f0f0f0; display: flex; justify-content: center; align-items: center; cursor: pointer;">
     <p>
         <a href="https://wandb.ai/lambdalabs/sora_speedrun/reports/Speed-Run-Stage-1--Vmlldzo5NjcyMjQ0" target="_blank">Click to load the Weights & Bias report</a>
@@ -181,7 +182,7 @@ TODO: share checkpoints after every stage?
   allowfullscreen>
 </iframe>
 
-#### Stage 2
+### Stage 2
 - **Config**: [`lambda/stage2.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage2.py)
 - **Details**: 5 epochs, mainly on mid resolutions.
   - We load the checkpoint from Stage 1 using `--ckpt-path`.
@@ -209,7 +210,7 @@ TODO: share checkpoints after every stage?
   allowfullscreen>
 </iframe>
 
-#### Stage 3
+### Stage 3
 - **Config**: [`lambda/stage3.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage3.py)
 - **Details**: 5 epochs, mainly on higher resolutions.
   - Adds the **MiraData-330k** dataset to provide a larger selection of high-resolution video clips.
@@ -239,14 +240,14 @@ TODO: share checkpoints after every stage?
   allowfullscreen>
 </iframe>
 
-### Additional 7k GPU Hours
+## Additional 7k GPU Hours
 To further enhance quality, we invested an additional **7k GPU hours** and defined three more training stages (Stages 4, 5, and 6). These stages are mostly copies of the original three used above for the 18k GPU hours run.
 
 **Key Differences in Additional Stages**
 In this phase, we decided to experiment with several key modifications to explore their impact on our results. We used both datasets, OpenVid and MiraData, simultaneously, totaling 1.3 million video clips, to provide the model with more diverse data. We adopted a different learning rate schedule with a small "warmup bump" to encourage more significant changes at the start of training. Additionally, we removed masking, as it's been shown to negatively affect output quality according to [this paper](https://arxiv.org/abs/2407.15811). By eliminating masking, we wanted to see if the trade-off between faster training times and potential improvements in output quality would benefit our application.
 
 
-#### Stage 4
+### Stage 4
 - **Config**: [`lambda/stage4.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage4.py)
 - **Details**: 3 epochs, mainly on lower resolutions.
   - We load the checkpoint from Stage 3 using `--ckpt-path`.
@@ -277,7 +278,7 @@ In this phase, we decided to experiment with several key modifications to explor
   allowfullscreen>
 </iframe>
 
-#### Stage 5
+### Stage 5
 - **Config**: [`lambda/stage5.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage5.py)
 - **Details**: 1 epoch, on mid resolutions.
   - We load the checkpoint from Stage 4 using `--ckpt-path`.
@@ -308,7 +309,7 @@ In this phase, we decided to experiment with several key modifications to explor
 </iframe>
 
 
-#### Stage 6
+### Stage 6
 
 - **Config**: [`lambda/stage6.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage6.py)
 - **Details**: 1 epoch, on high resolutions.
@@ -341,7 +342,7 @@ In this phase, we decided to experiment with several key modifications to explor
 </iframe>
 
 
-#### Stage 7
+### Stage 7
 - **Config**: [`lambda/stage7.py`](https://github.com/LambdaLabsML/Open-Sora/blob/main/configs/opensora-v1-2/lambda/stage7.py)
 - **Details**: 3 epochs, on high resolutions.
   - Same config as Stage 6.
@@ -376,75 +377,16 @@ In this phase, we decided to experiment with several key modifications to explor
 
 
 
-## Monitoring Model Quality
-
-While tracking loss curves in [Weights & Biases](https://wandb.com) provides valuable insights during training, the loss values often plateau after the initial few epochs. This makes it essential to evaluate the model beyond numerical metrics by assessing the quality of videos generated from a set of validation prompts. To do this, we need to run the most recent model weights in inference mode regularly.
-
-However, running inference on a Text-to-Video (T2V) model is computationally expensive. For example, generating videos at 720p resolution, 4 seconds in duration, with a batch size of 2 can takes already X minutes on a H100 — we don't want the entire cluster to idle while waiting for some nodes to finish evaluation!
-
-To address this, we set up a separate, smaller server to handle inference asynchronously. This allows the main training process to continue uninterrupted, maximizing our computational resources. The inference server runs the latest model checkpoints, generates sample videos, and saves the outputs to the same Weights & Biase runs that training is logging to, as you've seen in the result sections above.
-
-
-### Setting Up the Inference Server
-
-The inference server in this repository is designed to work asynchronously and supports several modes. Here's how you can set it up:
-1. **Synchronize Checkpoints**  
-   First, we need to synchronize the latest checkpoints from the training cluster to the inference server. If you don't have acccess to your shared storage on this dedicated inference machine, you can use `rsync` for this purpose to query the checkpoints regularly.
-
-   ```bash
-   watch -n 100 rsync -avzruP --exclude='*/optimizer' training-cluster:/path/to/your/training/outputs/* .
-   ```
-
-   This command runs every 100 seconds and synchronizes new checkpoints, excluding optimizer states to save bandwidth and storage.
-2. **Initialize the Node & Log In into W&B**:  
-    Ensure that both W&B and Open-Sora are properly initialized and functioning on this node. If the node is not included in the cluster where you have previously completed the setup, please refer to the instructions provided in the [Setup](../setup.md) section.
-3. **Run the Inference Server**  
-   Next, we start the inference server using the desired preset and experiment numbers:
-
-   ```bash
-   python scripts/inference-server.py --preset low4s --expnums 656
-   ```
-
-   - `--preset`: Specifies the inference settings. Available options include `low4s`, `high4s`, and `low16s`, which correspond to different resolutions and durations.
-   - `--expnums`: Specifies the experiment numbers or checkpoint directories to monitor and execute inference on. The experiment number is used to automatically extract the W&B run-id, enabling the inference server to identify the location to push the results to.
-
-   You can explore additional options and features by running:
-
-   ```bash
-   python scripts/inference-server.py --help
-   ```
-
-   For instance, you can run a second server that computes the `720p` results.
-   ```bash
-   python scripts/inference-server.py --preset high4s --expnums 656
-   ```
-
-By setting up the inference server this way, we can continuously monitor the model`s output quality without interrupting the training process. This approach ensures that our valuable training resources remain focused on model optimization, while inference and evaluation happen in parallel.
-
-
-
-
-## Monitoring Cluster Health
-
-While your training is running, it's crucial to keep an eye on the health of your cluster. We use an internal tool to monitor cluster performance, regularly checking for any signs of degrading performance. This tool logs metrics such as power draw across the entire cluster and InfiniBand or Ethernet speeds.
-
-As highlighted in [the LLama 3 Paper](https://arxiv.org/abs/2407.21783), large-scale distributed training can often face downtime. We too experienced this firsthand during our training runs. If you're interested in learning more about what we learned when our training failed recurrently, be sure to check out the [Lessons](../lessons.md) Section later in this tutorial.
-
-
-add screenshots if possible
-{: .todo}
-
-
-
 <br/>
 
 ---
 
 **What Next?**:  
-Now that we've covered the training process and how to monitor both model quality and cluster health, it's time to dive into the lessons we learned during our reproduction experiment. In the [next section](../lessons.md), we'll share insights on various challenges we faced—from finding data loader bugs that led to diverging training, to debugging issues in worker code that appeared randomly across the cluster, and tackling low-level problems with NCCL on a bare-metal setup.
+We hope this tutorial has provided you with valuable insights into training large-scale Text-to-Video models using OpenSora 1.2. By sharing our experiences — from configuring the training environment to troubleshooting complex issues — we aim to equip you with the knowledge to navigate similar challenges in your own projects.
 
-By exploring these experiences, you'll be better prepared to address similar challenges in your own work.
+Feel free to experiment with the configurations and techniques we've discussed. 
 
+*Cheers*
 
 
 ---
