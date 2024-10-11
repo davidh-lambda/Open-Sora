@@ -285,6 +285,11 @@ def main():
         ) as pbar:
             for step, batch in pbar:
                 timer_list = []
+                is_empty = batch.pop("is_empty")
+                if is_empty:
+                    # If the batch is empty, decrement the step counter and adjust the progress bar
+                    pbar.n -= 1
+                    continue
                 with timers["move_data"] as move_data_t:
                     x = batch.pop("video").to(device, dtype)  # [B, C, T, H, W]
                     y = batch.pop("text")

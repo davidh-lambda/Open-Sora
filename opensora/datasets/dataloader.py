@@ -114,9 +114,15 @@ def collate_fn_default(batch):
     # filter out None
     batch = [x for x in batch if x is not None]
 
+    # in case we have no data
+    is_empty = len(batch) == 0
+    if is_empty:
+        print("Empty batch detected! Skipping this batch.")
+        return {"is_empty": True}
+
     # HACK: for loading text features
     use_mask = False
-    if "mask" in batch[0] and isinstance(batch[0]["mask"], int):
+    if len(batch) > 0 and "mask" in batch[0] and isinstance(batch[0]["mask"], int):
         masks = [x.pop("mask") for x in batch]
 
         texts = [x.pop("text") for x in batch]
@@ -125,6 +131,7 @@ def collate_fn_default(batch):
 
     ret = torch.utils.data.default_collate(batch)
 
+    ret["is_empty"] = is_empty
     if use_mask:
         ret["mask"] = masks
         ret["text"] = texts
