@@ -1,14 +1,13 @@
 #!/bin/bash
 
 # Check if the input file is provided
-if [ $# -ne 2 ]; then
-  echo "Usage: $0 <input_file> <process_name>"
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 <input_file>"
   exit 1
 fi
 
 
 input_file="$1"
-process_name="$2"
 
 # Check if the input file exists
 if [ ! -f "$input_file" ]; then
