@@ -12,6 +12,7 @@ order: 2
 Before diving into training the model from scratch, we wanted to share some valuable lessons we learned along the way. In this section, we'll address problems we came across that you might encounter too, and explain how to solve them. These range from model divergence issues to debugging on a cluster and tackling cluster-related configuration problems that can be challenging to debug.
 
 ## Debugging Model Convergence Issues
+> **TL;DR:** We experienced model divergence when changing datasets mid-training due to mismatched data loader states, leading to repeated batches and divergence. By fixing the data loader to match the new dataset and smoothing transitions between data chunks, we resolved the convergence issues.
 
 When your model isn't converging as expected, it can be frustrating. In an earlier experiment, we tried splitting our data into five smaller chunks of increasing difficulty, each to be trained for two epochs. While this approach isn't part of the main tutorial, we thought it would be helpful to explain what went wrong and how we resolved the issues.
 
@@ -31,6 +32,8 @@ Since the data loader state was assuming a dataset length different from the act
 - **Purple Curve**: Since we tried to increase training speed by splitting data into levels of increasing quality (using the number of nouns in the video descriptions as an indicator), we found that the last jump — from difficulty level "4 of 5" to "5 of 5" — was too drastic. This significant drift in data has led to the divergence seen in the purple curve. Removing the hardest `0.01%` of that data solved the problem, and training finished successfully.
 
 ## Debugging on a Cluster
+> **TL;DR:** Our training processes were freezing randomly without errors. Using py-spy, we discovered that garbage collection issues in PyAV within our data loader were causing the freezes. Refactoring the code to use a single PyAV instance eliminated the problem.
+
 When training on a cluster, you might run into issues that are hard to diagnose. Particularly data loader code is inherently highly parallel: on every node in the cluster, for every training job (one per GPU), we have multiple workers (in our case, 16 per training process/GPU) that read data to feed into the training script as efficiently as possible.  
 Unfortunately, we found that our training froze unexpectedly without any errors — and worse, it happened randomly every 2 to 6 hours. Checking memory usage, CPU usage, and other metrics didn't reveal any issues.
 
@@ -63,6 +66,8 @@ Since PyAV is used under the hood, we checked their documentation and discovered
 
 
 ## Random NCCL Errors
+
+> **TL;DR:** We faced frequent NCCL errors causing training crashes, traced back to clock synchronization issues across cluster nodes. Implementing proper time synchronization using Chrony resolved these errors and stabilized our training runs.
 
 Another issue we encountered was random crashes due to NCCL errors. These crashes happened more regularly, sometimes every 30 minutes, and also required us to manually restart training.
 
