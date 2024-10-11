@@ -4,6 +4,7 @@ icon: fas fa-play-circle
 title: Training
 date: 2024-10-02
 toc: true
+order: 5
 ---
 
 > While the reading time of this section may be low, note that running the commands on this page may take a bit longer. For us the total time was `~5` days on a cluster with `192` H100 GPUs.
@@ -61,6 +62,7 @@ scripts/train.py configs/opensora-v1-2/lambda/stage1.py \
 
 TODO: remove NCCL settings or explain?  
 TODO: do the same for the other commands below  
+TODO: calculate OMP_NUM_THREADS automatically? `OMP_NUM_THREADS=$(( $(nproc --all) / 8 ))`  
 {: .todo}
 
 **Breaking Down the Command**
@@ -70,7 +72,7 @@ TODO: do the same for the other commands below
 - **Colossal-AI Command**:
     - `colossalai run`: Command to run the training script with [Colossal-AI's distributed training](https://colossalai.org/docs/concepts/colossalai_overview), essentially a wrapper around `torch.distributed` with improved parallelization and memory management.
     - `--nproc_per_node 8`: Specifies the number of processes (GPUs) to run per node. Adjust this according to your cluster's configuration.
-    - `--hostfile <HOSTFILE>`: Specifies the file containing the list of hostnames or IP addresses of the nodes in the cluster. In the [setup section](../02-setup.md) we have named the hostfile `nodes.txt`{: .filepath}.
+    - `--hostfile <HOSTFILE>`: Specifies the file containing the list of hostnames or IP addresses of the nodes in the cluster. In the [setup section](../setup.md) we have named the hostfile `nodes.txt`{: .filepath}.
 - **Training Script Arguments**:
     - `scripts/train.py`: The training script to run.
     - `<CONFIG_PATH>`: Path to the configuration file for the current training stage.
@@ -395,7 +397,7 @@ The inference server in this repository is designed to work asynchronously and s
 
    This command runs every 100 seconds and synchronizes new checkpoints, excluding optimizer states to save bandwidth and storage.
 2. **Initialize the Node & Log In into W&B**:  
-    Ensure that both W&B and Open-Sora are properly initialized and functioning on this node. If the node is not included in the cluster where you have previously completed the setup, please refer to the instructions provided in the [Setup](../02-setup.md) section.
+    Ensure that both W&B and Open-Sora are properly initialized and functioning on this node. If the node is not included in the cluster where you have previously completed the setup, please refer to the instructions provided in the [Setup](../setup.md) section.
 3. **Run the Inference Server**  
    Next, we start the inference server using the desired preset and experiment numbers:
 
@@ -426,7 +428,7 @@ By setting up the inference server this way, we can continuously monitor the mod
 
 While your training is running, it's crucial to keep an eye on the health of your cluster. We use an internal tool to monitor cluster performance, regularly checking for any signs of degrading performance. This tool logs metrics such as power draw across the entire cluster and InfiniBand or Ethernet speeds.
 
-As highlighted in [the LLama 3 Paper](https://arxiv.org/abs/2407.21783), large-scale distributed training can often face downtime. We too experienced this firsthand during our training runs. If you're interested in learning more about what we learned when our training failed recurrently, be sure to check out the [Lessons](../05-lessions.md) Section later in this tutorial.
+As highlighted in [the LLama 3 Paper](https://arxiv.org/abs/2407.21783), large-scale distributed training can often face downtime. We too experienced this firsthand during our training runs. If you're interested in learning more about what we learned when our training failed recurrently, be sure to check out the [Lessons](../lessons.md) Section later in this tutorial.
 
 
 add screenshots if possible
@@ -439,7 +441,7 @@ add screenshots if possible
 ---
 
 **What Next?**:  
-Now that we've covered the training process and how to monitor both model quality and cluster health, it's time to dive into the lessons we learned during our reproduction experiment. In the [next section](../05-lessons.md), we'll share insights on various challenges we faced—from finding data loader bugs that led to diverging training, to debugging issues in worker code that appeared randomly across the cluster, and tackling low-level problems with NCCL on a bare-metal setup.
+Now that we've covered the training process and how to monitor both model quality and cluster health, it's time to dive into the lessons we learned during our reproduction experiment. In the [next section](../lessons.md), we'll share insights on various challenges we faced—from finding data loader bugs that led to diverging training, to debugging issues in worker code that appeared randomly across the cluster, and tackling low-level problems with NCCL on a bare-metal setup.
 
 By exploring these experiences, you'll be better prepared to address similar challenges in your own work.
 

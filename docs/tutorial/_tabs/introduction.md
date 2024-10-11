@@ -4,6 +4,7 @@ icon: fas fa-lightbulb
 title: Introduction
 date: 2024-10-02
 toc: true
+order: 1
 ---
 
 # Let's reproduce a **T2V** model!
@@ -27,9 +28,15 @@ According to [Facebook's LLaMA 3.1 paper](https://arxiv.org/abs/2407.21783), app
 
 ## Tutorial Overview & What You'll Learn
 
+### [**Lessons Learned** — Model Divergence, Cluster Debugging, NCCL Errors](../05-lessons)
+Let's start with what problems we came across and their solutions.
+- **Resolving Model Convergence Problems**: Learn how to tackle issues when your model does not converge as anticipated.
+- **Debugging On a Clusters**: Discover how to utilize [py-spy](https://github.com/benfred/py-spy) for debugging cluster-wide running code. We will debug the distributed training data loader as an example.
+- **Random NCCL Errors**: Obtain advice on handling the intricacies of training on a cluster.
 
-### [**Setup** - Clone, Install & Setup your Cluster](../02-setup)
-To begin, we'll go through the following steps to set everything up:
+
+### [**Setup** — Clone, Install & Setup your Cluster](../02-setup)
+To begin training, we'll go through the following steps to set everything up:
 - **Basic Setup**:
     - We'll guide you through cloning and configuring the required codebase.
     - Installing conda & dependencies
@@ -48,21 +55,15 @@ For our reproduction experiment, we will:
 
 
 ### [**Training** — Get the Ball Rolling](../04-training)
-Training on a larger scale comes with its own set of challenges. Here's what we will address:
+And of course, let's start training! Training on a larger scale comes with its own set of challenges. Here's what we will address:
 - **Training Configurations**: We will recommend settings for a speed run (18k GPU hours) and an additional 7k GPU hours run to enhance the results. We will discuss the expectations from each setting and share intermediate and final results for our runs.
 - **Starting and Monitoring Training on a Cluster**: Open-Sora is built on top of the [ColossalAI launcher](https://colossalai.org/). We'll start by simply providing the commands to get you started and how to monitor loss curves in [weights and biases](https://wandb.com).
 - **Evaluating Model Quality**: Learn how to assess model performance using a separate inference server.
 - **Monitoring Cluster Health**: Large-scale distributed training often faces the challenge of downtime, which can be both experienced and should be carefully tracked during the process.
 
 
-### [**Lessons Learned**](../05-lessons)
-Finally, we'll address common problems you might encounter and their solutions.
-- **Resolving Model Convergence Problems**: Learn how to tackle issues when your model does not converge as anticipated.
-- **Overcoming Cluster-Related Obstacles**: Obtain advice on handling the intricacies of training on a cluster.
-- **Debugging Techniques for Clusters**: Discover how to utilize [py-spy](https://github.com/benfred/py-spy) for debugging. We will debug the distributed training data loader as an example.
-
-
 By the end of this tutorial, you'll have a comprehensive understanding of what's involved in scaling up T2V models like Open-Sora 1.2. You'll be better equipped to handle the challenges that come with large-scale training and better prepared to troubleshoot and optimize your models effectively.
+It's time to dive right in In the [next section](../lessons.md), we'll share insights on various challenges we faced—from finding data loader bugs that led to diverging training, to debugging issues in worker code that appeared randomly across the cluster, and tackling low-level problems with NCCL on a bare-metal setup.
 
 
 <br/>

@@ -4,6 +4,7 @@ icon: fas fa-cogs
 title: Setup
 date: 2024-10-02
 toc: true
+order: 3
 ---
 
 # Clone, Install & Set Up Your Cluster
